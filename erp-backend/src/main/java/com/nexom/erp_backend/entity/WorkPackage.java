@@ -25,4 +25,7 @@ public class WorkPackage {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "delivery_date")
+    private String deliveryDate;
 }

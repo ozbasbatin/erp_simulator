@@ -47,6 +47,9 @@ public class Part {
     @Column(name = "drawing_path")
     private String drawingPath;
 
+    @Column(name = "quality_doc_path")
+    private String qualityDocPath;
+
     @Enumerated(EnumType.STRING)
     private PartStatus status = PartStatus.BEKLIYOR;
 

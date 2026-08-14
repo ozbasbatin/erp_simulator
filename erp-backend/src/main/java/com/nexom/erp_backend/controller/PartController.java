@@ -4,6 +4,9 @@ import com.nexom.erp_backend.entity.Part;
 import com.nexom.erp_backend.entity.PartStatus;
 import com.nexom.erp_backend.repository.PartRepository;
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -32,18 +35,33 @@ public class PartController {
         return partRepository.findByStatus(status);
     }
 
-    // Parçanın durumunu güncelleme (PUT isteği)
-    @PutMapping("/{id}/status")
-    public Part updatePartStatus(@PathVariable Long id, @RequestParam PartStatus status) {
-        // Önce id'ye göre parçayı veritabanından buluyoruz
-        Part part = partRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Parça bulunamadı!"));
+    // Parça Güncelleme (PUT İsteğini Karşılayan Metod)
+    @PutMapping("/{id}")
+    public ResponseEntity<Part> updatePart(@PathVariable Long id, @RequestBody Part updatedPart) {
+        try {
+            Part existingPart = partRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Parça bulunamadı: " + id));
 
-        // Parçanın yeni durumunu ayarlıyoruz
-        part.setStatus(status);
+            // Alanları güncelle
+            existingPart.setProducedQuantity(updatedPart.getProducedQuantity());
+            existingPart.setDrawingPath(updatedPart.getDrawingPath());
+            existingPart.setStatus(updatedPart.getStatus());
+            existingPart.setPostProcess(updatedPart.getPostProcess());
 
-        // Güncellenmiş haliyle veritabanına tekrar kaydediyoruz
-        return partRepository.save(part);
+            // İlişkileri koruyarak kaydet
+            if (updatedPart.getMachine() != null) {
+                existingPart.setMachine(updatedPart.getMachine());
+            }
+            if (updatedPart.getWorkPackage() != null) {
+                existingPart.setWorkPackage(updatedPart.getWorkPackage());
+            }
+
+            Part savedPart = partRepository.save(existingPart);
+            return ResponseEntity.ok(savedPart);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
     @DeleteMapping("/{id}")

@@ -24,4 +24,7 @@ public class Machine {
 
     @Column(name = "maintenance_note", columnDefinition = "TEXT")
     private String maintenanceNote;
+
+    @Column(name = "operator_name")
+    private String operatorName;
 }
