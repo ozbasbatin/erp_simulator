@@ -10,6 +10,8 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
   const [producedQuantity, setProducedQuantity] = useState(0);
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [operatorModalMachine, setOperatorModalMachine] = useState(null);
+  const [tempOperatorName, setTempOperatorName] = useState("");
 
   const handleAddMachine = async (e) => {
     e.preventDefault();
@@ -41,10 +43,36 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
     }
   };
 
+  const handleSaveOperator = async () => {
+    if (!operatorModalMachine) return;
+
+    try {
+      const updatedMachine = {
+        ...operatorModalMachine,
+        operatorName: tempOperatorName,
+      };
+      const res = await fetch(
+        `http://localhost:8080/api/machines/${operatorModalMachine.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updatedMachine),
+        },
+      );
+
+      if (!res.ok) throw new Error("Sunucu güncellemeyi reddetti!");
+
+      setOperatorModalMachine(null);
+      onRefresh();
+    } catch (error) {
+      console.error(error);
+      alert("⚠️ Hata: Operatör atanamadı! Sunucu bağlantısını kontrol edin.");
+    }
+  };
+
   const openMachineModal = (machine, activePart) => {
     setSelectedMachine(machine);
     setActivePartInModal(activePart);
-    // Null kontrolü ile güvenli atama
     setProducedQuantity(
       activePart && activePart.producedQuantity != null
         ? activePart.producedQuantity
@@ -79,10 +107,16 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
         drawingPath = uploadData.fileName;
       }
 
-      // YENİ: Otomatik Tamamlanma Mantığı
       const newProducedQuantity = parseInt(producedQuantity, 10) || 0;
-      // Üretilen adet, hedeflenen adete eşit veya büyükse işlem bitmiştir
       const isCompleted = newProducedQuantity >= activePartInModal.quantity;
+
+      if (newProducedQuantity > activePartInModal.quantity) {
+        alert(
+          `⚠️ Hata: Hedeflenen adetten (${activePartInModal.quantity}) fazla parça giremezsiniz!`,
+        );
+        setIsUploading(false);
+        return;
+      }
 
       // 2. Güncellenecek veriyi hazırla
       const updatedPart = {
@@ -91,7 +125,6 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
         productName: activePartInModal.productName,
         quantity: activePartInModal.quantity,
         producedQuantity: newProducedQuantity,
-        // EĞER bittiyse statüyü TAMAMLANDI yap, bitmediyse eski statüsünde (URETIMDE) bırak
         status: isCompleted ? "TAMAMLANDI" : activePartInModal.status,
         postProcess: activePartInModal.postProcess,
         drawingPath: drawingPath,
@@ -297,37 +330,9 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                   </strong>
                 </span>
                 <button
-                  onClick={async () => {
-                    const newOperator = window.prompt(
-                      `'${m.name}' için yeni operatör adını giriniz:`,
-                      m.operatorName || "",
-                    );
-                    if (newOperator !== null) {
-                      try {
-                        const updatedMachine = {
-                          ...m,
-                          operatorName: newOperator,
-                        };
-                        const res = await fetch(
-                          `http://localhost:8080/api/machines/${m.id}`,
-                          {
-                            method: "PUT",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(updatedMachine),
-                          },
-                        );
-
-                        if (!res.ok)
-                          throw new Error("Sunucu güncellemeyi reddetti!");
-
-                        onRefresh(); // Başarılıysa listeyi yenile
-                      } catch (error) {
-                        console.error(error);
-                        alert(
-                          "⚠️ Hata: Operatör atanamadı! Sunucu bağlantısını kontrol edin.",
-                        );
-                      }
-                    }
+                  onClick={() => {
+                    setOperatorModalMachine(m);
+                    setTempOperatorName(m.operatorName || "");
                   }}
                   style={{
                     backgroundColor: "transparent",
@@ -672,6 +677,92 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                 Bu makinede şu an aktif bir üretim bulunmuyor.
               </p>
             )}
+          </div>
+        </div>
+      )}
+      {/* YENİ: Şık Operatör Atama Kutucuğu (Modal) */}
+      {operatorModalMachine && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.7)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1100, // Diğer modalın üstünde çıksın diye yüksek verdik
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e293b",
+              padding: "25px",
+              borderRadius: "12px",
+              width: "350px",
+              border: "1px solid #475569",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 15px 0", color: "#f8fafc" }}>
+              👨‍🔧 {operatorModalMachine.name} - Operatör Seçimi
+            </h3>
+
+            <input
+              type="text"
+              placeholder="Operatörün Adı Soyadı"
+              value={tempOperatorName}
+              onChange={(e) => setTempOperatorName(e.target.value)}
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "10px",
+                borderRadius: "6px",
+                border: "1px solid #475569",
+                backgroundColor: "#0f172a",
+                color: "#fff",
+                marginBottom: "20px",
+                boxSizing: "border-box",
+              }}
+            />
+
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                onClick={() => setOperatorModalMachine(null)}
+                style={{
+                  padding: "8px 15px",
+                  backgroundColor: "transparent",
+                  color: "#cbd5e1",
+                  border: "1px solid #475569",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                }}
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleSaveOperator}
+                style={{
+                  padding: "8px 15px",
+                  backgroundColor: "#10b981",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                }}
+              >
+                Kaydet
+              </button>
+            </div>
           </div>
         </div>
       )}

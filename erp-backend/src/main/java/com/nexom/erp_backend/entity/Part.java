@@ -71,4 +71,10 @@ public class Part {
 
     @Column(name = "delivery_date")
     private LocalDateTime deliveryDate;
+
+    @Column(name = "raw_material")
+    private String rawMaterial;
+
+    @Column(name = "has_coating")
+    private Boolean hasCoating = false;
 }

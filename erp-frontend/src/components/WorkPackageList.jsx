@@ -1,23 +1,35 @@
 import { useState } from "react";
 
 export default function WorkPackageList({
-  workPackages,
+  workPackages = [],
   parts = [],
   machines = [],
   onRefresh,
 }) {
-  // --- İŞ PAKETİ (ANA EKRAN) STATE'LERİ ---
+  const safePackages = Array.isArray(workPackages) ? workPackages : [];
+  const safeParts = Array.isArray(parts) ? parts : [];
+  const safeMachines = Array.isArray(machines) ? machines : [];
+
+  // --- İŞ PAKETİ STATE'LERİ ---
   const [packageNo, setPackageNo] = useState("");
   const [qualityNotes, setQualityNotes] = useState("");
   const [showPackageForm, setShowPackageForm] = useState(false);
-  const [selectedPackage, setSelectedPackage] = useState(null); // Hangi paketin içine girildi?
+  const [selectedPackage, setSelectedPackage] = useState(null);
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [orderDate, setOrderDate] = useState("");
 
-  // --- PARÇA EKLEME (DETAY EKRANI) STATE'LERİ ---
+  // --- PARÇA EKLEME STATE'LERİ ---
   const [partNo, setPartNo] = useState("");
   const [productName, setProductName] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [machineId, setMachineId] = useState("");
+  const [rawMaterial, setRawMaterial] = useState("");
+  const [hasCoating, setHasCoating] = useState(false); // YENİ: Kaplama var mı?
+
+  // --- ÜRETİME ALMA MODAL STATE'LERİ ---
+  const [productionModalPart, setProductionModalPart] = useState(null);
+  const [selectedMachineForProduction, setSelectedMachineForProduction] =
+    useState("");
 
   // 1. Yeni İş Paketi Ekleme
   const handleAddPackage = async (e) => {
@@ -29,14 +41,18 @@ export default function WorkPackageList({
         packageNo,
         qualityNotes,
         deliveryDate,
+        customerName,
+        orderDate,
         createdAt: new Date().toISOString(),
       }),
     });
     setPackageNo("");
     setQualityNotes("");
     setDeliveryDate("");
+    setCustomerName("");
+    setOrderDate("");
     setShowPackageForm(false);
-    onRefresh();
+    if (onRefresh) onRefresh();
   };
 
   // 2. İş Paketi Silme
@@ -45,29 +61,23 @@ export default function WorkPackageList({
       const res = await fetch(`http://localhost:8080/api/work-packages/${id}`, {
         method: "DELETE",
       });
-
-      // YENİ: Arka uç silmeyi reddederse (içinde parça varsa) uyarı ver
       if (!res.ok) {
         alert(
           "⚠️ UYARI: Bu iş paketine kayıtlı parçalar var! Paketi silebilmek için önce içindeki parçaları silmelisiniz.",
         );
         return;
       }
-
       if (selectedPackage && selectedPackage.id === id)
         setSelectedPackage(null);
-      onRefresh();
+      if (onRefresh) onRefresh();
     }
   };
 
-  // YENİ: Kalan gün hesaplayıcı ve akıllı rozet (Badge) üretici
+  // Kalan gün hesaplayıcı
   const renderDeadlineBadge = (dateStr) => {
     if (!dateStr) return null;
-    const today = new Date();
-    const delivery = new Date(dateStr);
-    const diffTime = delivery - today;
+    const diffTime = new Date(dateStr) - new Date();
     const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
     if (days < 0)
       return (
         <span
@@ -114,7 +124,7 @@ export default function WorkPackageList({
     );
   };
 
-  // 3. Paketin İçine Parça Ekleme (Yeni Özellik)
+  // 3. Paketin İçine Parça Ekleme (Kaplama Checkbox'ı ile birlikte)
   const handleAddPartInsidePackage = async (e) => {
     e.preventDefault();
     await fetch("http://localhost:8080/api/parts", {
@@ -125,56 +135,90 @@ export default function WorkPackageList({
         productName,
         quantity: Number(quantity),
         producedQuantity: 0,
-        status: "BEKLIYOR",
+        rawMaterial,
+        hasCoating, // YENİ: Veritabanına kaplama bilgisini gönderiyoruz
+        status: "HAMMADDE_BEKLIYOR",
         postProcess: "TESVIYE",
-        machine: { id: Number(machineId) },
-        workPackage: { id: selectedPackage.id }, // Otomatik olarak içine girdiğimiz pakete atanır
+        machine: null,
+        workPackage: { id: selectedPackage.id },
       }),
     });
     setPartNo("");
     setProductName("");
     setQuantity("");
-    setMachineId("");
-    onRefresh();
+    setRawMaterial("");
+    setHasCoating(false);
+    if (onRefresh) onRefresh();
   };
 
-  // 4. Parça Silme (Detay Ekranından)
   const handleDeletePart = async (id) => {
     if (window.confirm("Bu parçayı silmek istediğinize emin misiniz?")) {
       await fetch(`http://localhost:8080/api/parts/${id}`, {
         method: "DELETE",
       });
-      onRefresh();
+      if (onRefresh) onRefresh();
     }
   };
-  // 6. Üretime Alma ve Dolu Makine Kontrolü
-  const handleStartProduction = async (part) => {
-    // YENİ MANTIK: Bu parçanın atanacağı makinede şu an 'URETIMDE' olan başka parça var mı?
-    const isMachineBusy = parts.some(
-      (p) => p.machine?.id === part.machine?.id && p.status === "URETIMDE",
-    );
 
-    if (isMachineBusy) {
-      alert(
-        `⚠️ HATA: Seçilen makine şu anda başka bir parça üretiyor! Lütfen önce o üretimi bitirin.`,
-      );
-      return;
-    }
-
-    // Makine boşsa parçayı üretime al
-    const updatedPart = { ...part, status: "URETIMDE" };
-
+  const handleHammaddeGeldi = async (part) => {
+    const updatedPart = { ...part, status: "BEKLIYOR" };
     await fetch(`http://localhost:8080/api/parts/${part.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedPart),
     });
-
-    onRefresh();
+    if (onRefresh) onRefresh();
   };
 
-  // 5. Akıllı Süreç Belirteci (Badge) Oluşturucu
+  const handleConfirmProduction = async () => {
+    if (!selectedMachineForProduction) {
+      alert("Lütfen üretime başlamak için bir tezgah seçin!");
+      return;
+    }
+    const isMachineBusy = safeParts.some(
+      (p) =>
+        p.machine?.id === Number(selectedMachineForProduction) &&
+        p.status === "URETIMDE",
+    );
+    if (isMachineBusy) {
+      alert(
+        "⚠️ HATA: Seçilen makine şu anda dolu! Lütfen boş bir makine seçin.",
+      );
+      return;
+    }
+
+    const updatedPart = {
+      ...productionModalPart,
+      status: "URETIMDE",
+      machine: { id: Number(selectedMachineForProduction) },
+    };
+    await fetch(`http://localhost:8080/api/parts/${productionModalPart.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedPart),
+    });
+    setProductionModalPart(null);
+    setSelectedMachineForProduction("");
+    if (onRefresh) onRefresh();
+  };
+
+  // Rozet Oluşturucu (KAPLAMA ROZETİ EKLENDİ)
   const getProcessBadge = (part) => {
+    if (part.status === "HAMMADDE_BEKLIYOR")
+      return (
+        <span
+          style={{
+            backgroundColor: "#94a3b8",
+            color: "#fff",
+            padding: "4px 8px",
+            borderRadius: "4px",
+            fontSize: "12px",
+            fontWeight: "bold",
+          }}
+        >
+          🧱 Hammadde Bekliyor
+        </span>
+      );
     if (part.status === "BEKLIYOR")
       return (
         <span
@@ -205,8 +249,6 @@ export default function WorkPackageList({
           Makinede Üretiliyor
         </span>
       );
-
-    // Eğer üretimi bittiyse Kanban aşamasına bak:
     if (part.status === "TAMAMLANDI") {
       switch (part.postProcess) {
         case "TESVIYE":
@@ -222,6 +264,21 @@ export default function WorkPackageList({
               }}
             >
               🪚 Tesviyede
+            </span>
+          );
+        case "KAPLAMA":
+          return (
+            <span
+              style={{
+                backgroundColor: "#d946ef",
+                color: "#fff",
+                padding: "4px 8px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                fontWeight: "bold",
+              }}
+            >
+              🎨 Kaplama/Boyada
             </span>
           );
         case "KALITE_KONTROL":
@@ -293,389 +350,663 @@ export default function WorkPackageList({
     border: "1px solid #475569",
     backgroundColor: "#0f172a",
     color: "#fff",
+    boxSizing: "border-box",
   };
 
-  // ==========================================
-  // GÖRÜNÜM 2: DETAY EKRANI (İş Paketinin İçi)
-  // ==========================================
-  if (selectedPackage) {
-    const packageParts = parts.filter(
-      (p) => p.workPackage?.id === selectedPackage.id,
-    );
-
-    return (
-      <div
-        style={{
-          backgroundColor: "#1e293b",
-          padding: "20px",
-          borderRadius: "12px",
-          border: "1px solid #334155",
-        }}
-      >
-        {/* Üst Bilgi ve Geri Dön Butonu */}
+  return (
+    <div style={{ paddingBottom: "20px" }}>
+      {selectedPackage ? (
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "15px",
-            borderBottom: "1px solid #334155",
-            paddingBottom: "15px",
-            marginBottom: "20px",
+            backgroundColor: "#1e293b",
+            padding: "20px",
+            borderRadius: "12px",
+            border: "1px solid #334155",
           }}
         >
-          <button
-            onClick={() => setSelectedPackage(null)}
+          <div
             style={{
-              backgroundColor: "#334155",
-              color: "#fff",
-              border: "none",
-              padding: "8px 12px",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontWeight: "bold",
+              display: "flex",
+              alignItems: "center",
+              gap: "15px",
+              borderBottom: "1px solid #334155",
+              paddingBottom: "15px",
+              marginBottom: "20px",
             }}
           >
-            ⬅ Geri Dön
-          </button>
-          <h2 style={{ margin: 0, color: "#38bdf8" }}>
-            Paket Yönetimi: {selectedPackage.packageNo}
-          </h2>
-        </div>
-
-        {/* Paketin İçine Parça Ekleme Formu */}
-        <div
-          style={{
-            backgroundColor: "#0f172a",
-            padding: "15px",
-            borderRadius: "8px",
-            marginBottom: "20px",
-            border: "1px solid #475569",
-          }}
-        >
-          <h3 style={{ marginTop: 0, color: "#94a3b8", fontSize: "16px" }}>
-            Bu Pakete Yeni Parça Ekle
-          </h3>
-          <form
-            onSubmit={handleAddPartInsidePackage}
-            style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}
-          >
-            <input
-              type="text"
-              placeholder="Parça No"
-              value={partNo}
-              onChange={(e) => setPartNo(e.target.value)}
-              required
-              style={{ ...inputStyle, flex: 1 }}
-            />
-            <input
-              type="text"
-              placeholder="Ürün Adı"
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              required
-              style={{ ...inputStyle, flex: 1 }}
-            />
-            <input
-              type="number"
-              placeholder="Adet"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              required
-              style={{ ...inputStyle, width: "100px" }}
-            />
-            <select
-              value={machineId}
-              onChange={(e) => setMachineId(e.target.value)}
-              required
-              style={{ ...inputStyle, flex: 1 }}
-            >
-              <option value="" disabled>
-                Makine Seçin
-              </option>
-              {machines.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
             <button
-              type="submit"
+              onClick={() => setSelectedPackage(null)}
               style={{
-                backgroundColor: "#16a34a",
+                backgroundColor: "#334155",
                 color: "#fff",
-                padding: "10px 15px",
-                borderRadius: "6px",
                 border: "none",
+                padding: "8px 12px",
+                borderRadius: "6px",
                 cursor: "pointer",
                 fontWeight: "bold",
               }}
             >
-              + Ekle
+              ⬅ Geri Dön
             </button>
-          </form>
-        </div>
+            <h2 style={{ margin: 0, color: "#38bdf8" }}>
+              Paket Yönetimi: {selectedPackage.packageNo}
+            </h2>
+          </div>
 
-        {/* Bu Pakete Ait Parçaların Listesi ve Belirteçler */}
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            textAlign: "left",
-            fontSize: "14px",
-          }}
-        >
-          <thead>
-            <tr style={{ borderBottom: "2px solid #475569", color: "#94a3b8" }}>
-              <th style={{ padding: "10px" }}>Parça No</th>
-              <th style={{ padding: "10px" }}>Ürün Adı</th>
-              <th style={{ padding: "10px" }}>Üretim (Hedef)</th>
-              <th style={{ padding: "10px" }}>Güncel Aşama</th>
-              <th style={{ padding: "10px", textAlign: "right" }}>İşlem</th>
-            </tr>
-          </thead>
-          <tbody>
-            {packageParts.length > 0 ? (
-              packageParts.map((p) => (
-                <tr key={p.id} style={{ borderBottom: "1px solid #334155" }}>
-                  <td
-                    style={{
-                      padding: "10px",
-                      color: "#f8fafc",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {p.partNo}
-                  </td>
-                  <td style={{ padding: "10px", color: "#cbd5e1" }}>
-                    {p.productName}
-                  </td>
-                  <td style={{ padding: "10px", color: "#cbd5e1" }}>
-                    {p.producedQuantity} / {p.quantity}
-                  </td>
-                  <td style={{ padding: "10px" }}>{getProcessBadge(p)}</td>
-                  <td
-                    style={{
-                      padding: "10px",
-                      textAlign: "right",
-                      display: "flex",
-                      gap: "5px",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    {/* Sadece BEKLIYOR statüsündekiler üretime alınabilir */}
-                    {p.status === "BEKLIYOR" && (
-                      <button
-                        onClick={() => handleStartProduction(p)}
+          <div
+            style={{
+              backgroundColor: "#0f172a",
+              padding: "15px",
+              borderRadius: "8px",
+              marginBottom: "20px",
+              border: "1px solid #475569",
+            }}
+          >
+            <h3 style={{ marginTop: 0, color: "#94a3b8", fontSize: "16px" }}>
+              Bu Pakete Yeni Parça Ekle
+            </h3>
+            <form
+              onSubmit={handleAddPartInsidePackage}
+              style={{
+                display: "flex",
+                gap: "10px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Parça No"
+                value={partNo}
+                onChange={(e) => setPartNo(e.target.value)}
+                required
+                style={{ ...inputStyle, flex: 1, minWidth: "120px" }}
+              />
+              <input
+                type="text"
+                placeholder="Ürün Adı"
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                required
+                style={{ ...inputStyle, flex: 1, minWidth: "120px" }}
+              />
+              <input
+                type="number"
+                placeholder="Adet"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                required
+                style={{ ...inputStyle, width: "90px" }}
+              />
+              <input
+                type="text"
+                placeholder="Hammadde (Örn: C45)"
+                value={rawMaterial}
+                onChange={(e) => setRawMaterial(e.target.value)}
+                required
+                style={{ ...inputStyle, flex: 1, minWidth: "150px" }}
+              />
+
+              {/* YENİ: KAPLAMA/BOYA CHECKBOX'I */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  backgroundColor: "#1e293b",
+                  padding: "10px",
+                  borderRadius: "6px",
+                  border: "1px solid #475569",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  id="coatingCheck"
+                  checked={hasCoating}
+                  onChange={(e) => setHasCoating(e.target.checked)}
+                  style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                />
+                <label
+                  htmlFor="coatingCheck"
+                  style={{
+                    color: "#cbd5e1",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                  }}
+                >
+                  Boya/Kaplama
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                style={{
+                  backgroundColor: "#16a34a",
+                  color: "#fff",
+                  padding: "10px 15px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                + Ekle
+              </button>
+            </form>
+          </div>
+
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              textAlign: "left",
+              fontSize: "14px",
+            }}
+          >
+            <thead>
+              <tr
+                style={{ borderBottom: "2px solid #475569", color: "#94a3b8" }}
+              >
+                <th style={{ padding: "10px" }}>Parça No</th>
+                <th style={{ padding: "10px" }}>Ürün Adı</th>
+                <th style={{ padding: "10px" }}>Üretim</th>
+                <th style={{ padding: "10px" }}>Güncel Aşama</th>
+                <th style={{ padding: "10px", textAlign: "right" }}>İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {safeParts.filter((p) => p.workPackage?.id === selectedPackage.id)
+                .length > 0 ? (
+                safeParts
+                  .filter((p) => p.workPackage?.id === selectedPackage.id)
+                  .map((p) => (
+                    <tr
+                      key={p.id}
+                      style={{ borderBottom: "1px solid #334155" }}
+                    >
+                      <td
                         style={{
-                          backgroundColor: "#ca8a04",
-                          color: "#fff",
-                          border: "none",
-                          padding: "6px 10px",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          fontSize: "12px",
+                          padding: "10px",
+                          color: "#f8fafc",
                           fontWeight: "bold",
                         }}
                       >
-                        Üretime Al ⚙️
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleDeletePart(p.id)}
+                        {p.partNo}{" "}
+                        {p.hasCoating && (
+                          <span style={{ fontSize: "10px", color: "#d946ef" }}>
+                            {" "}
+                            (🎨)
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "10px", color: "#cbd5e1" }}>
+                        {p.productName}
+                      </td>
+                      <td style={{ padding: "10px", color: "#cbd5e1" }}>
+                        {p.producedQuantity} / {p.quantity}
+                      </td>
+                      <td style={{ padding: "10px" }}>{getProcessBadge(p)}</td>
+                      <td
+                        style={{
+                          padding: "10px",
+                          textAlign: "right",
+                          display: "flex",
+                          gap: "5px",
+                          justifyContent: "flex-end",
+                        }}
+                      >
+                        {p.status === "HAMMADDE_BEKLIYOR" && (
+                          <button
+                            onClick={() => handleHammaddeGeldi(p)}
+                            style={{
+                              backgroundColor: "#8b5cf6",
+                              color: "#fff",
+                              border: "none",
+                              padding: "6px 10px",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "12px",
+                              fontWeight: "bold",
+                            }}
+                          >
+                            Hammadde Geldi 📦
+                          </button>
+                        )}
+                        {p.status === "BEKLIYOR" && (
+                          <button
+                            onClick={() => setProductionModalPart(p)}
+                            style={{
+                              backgroundColor: "#ca8a04",
+                              color: "#fff",
+                              border: "none",
+                              padding: "6px 10px",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "12px",
+                              fontWeight: "bold",
+                            }}
+                          >
+                            Üretime Al ⚙️
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeletePart(p.id)}
+                          style={{
+                            backgroundColor: "#ef4444",
+                            color: "#fff",
+                            border: "none",
+                            padding: "6px 10px",
+                            borderRadius: "4px",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                          }}
+                        >
+                          Sil
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan="5"
+                    style={{
+                      padding: "20px",
+                      textAlign: "center",
+                      color: "#64748b",
+                    }}
+                  >
+                    Bu pakette henüz hiç parça yok.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "25px",
+            }}
+          >
+            <h2 style={{ margin: 0, color: "#f8fafc" }}>
+              Kayıtlı İş Paketleri
+            </h2>
+            <button
+              onClick={() => setShowPackageForm(!showPackageForm)}
+              style={{
+                backgroundColor: "#10b981",
+                color: "white",
+                padding: "10px 20px",
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: "bold",
+              }}
+            >
+              {showPackageForm ? "İptal" : "+ Yeni Paket Oluştur"}
+            </button>
+          </div>
+
+          {showPackageForm && (
+            <form
+              onSubmit={handleAddPackage}
+              style={{
+                backgroundColor: "#1e293b",
+                padding: "20px",
+                borderRadius: "8px",
+                marginBottom: "20px",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "15px",
+                alignItems: "flex-end",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: "150px" }}>
+                <input
+                  type="text"
+                  placeholder="İş Paketi No"
+                  value={packageNo}
+                  onChange={(e) => setPackageNo(e.target.value)}
+                  required
+                  style={{ ...inputStyle, width: "100%" }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: "150px" }}>
+                <input
+                  type="text"
+                  placeholder="Müşteri Adı"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  required
+                  style={{ ...inputStyle, width: "100%" }}
+                />
+              </div>
+              <div style={{ flex: 2, minWidth: "200px" }}>
+                <input
+                  type="text"
+                  placeholder="Notlar"
+                  value={qualityNotes}
+                  onChange={(e) => setQualityNotes(e.target.value)}
+                  style={{ ...inputStyle, width: "100%" }}
+                />
+              </div>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+              >
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "#94a3b8",
+                    marginLeft: "2px",
+                  }}
+                >
+                  Sipariş Tarihi
+                </span>
+                <input
+                  type="date"
+                  value={orderDate}
+                  onChange={(e) => setOrderDate(e.target.value)}
+                  required
+                  style={inputStyle}
+                />
+              </div>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+              >
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "#94a3b8",
+                    marginLeft: "2px",
+                  }}
+                >
+                  Teslim Tarihi
+                </span>
+                <input
+                  type="date"
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  required
+                  style={inputStyle}
+                />
+              </div>
+              <button
+                type="submit"
+                style={{
+                  backgroundColor: "#0284c7",
+                  color: "#fff",
+                  padding: "10px 20px",
+                  height: "40px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                Kaydet
+              </button>
+            </form>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+              gap: "20px",
+            }}
+          >
+            {safePackages.map((wp) => {
+              const packagePartsCount = safeParts.filter(
+                (p) => p.workPackage?.id === wp.id,
+              ).length;
+              return (
+                <div
+                  key={wp.id}
+                  style={{
+                    backgroundColor: "#1e293b",
+                    border: "1px solid #334155",
+                    borderRadius: "12px",
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "15px",
+                  }}
+                >
+                  <div>
+                    <h3
                       style={{
-                        backgroundColor: "#ef4444",
+                        margin: "0 0 5px 0",
+                        color: "#38bdf8",
+                        fontSize: "18px",
+                      }}
+                    >
+                      📦 {wp.packageNo}
+                    </h3>
+                    <span
+                      style={{
+                        fontSize: "13px",
+                        color: "#94a3b8",
+                        display: "block",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      İçerik: {packagePartsCount} Parça
+                    </span>
+                    {wp.qualityNotes && (
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          color: "#cbd5e1",
+                          fontStyle: "italic",
+                          display: "block",
+                          marginBottom: "8px",
+                          borderLeft: "2px solid #3b82f6",
+                          paddingLeft: "5px",
+                        }}
+                      >
+                        📝 {wp.qualityNotes}
+                      </span>
+                    )}
+                    {wp.customerName && (
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          color: "#38bdf8",
+                          display: "block",
+                          marginBottom: "5px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        👤 {wp.customerName}
+                      </span>
+                    )}
+                    {renderDeadlineBadge(wp.deliveryDate)}
+                  </div>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button
+                      onClick={() => setSelectedPackage(wp)}
+                      style={{
+                        flex: 1,
+                        padding: "10px",
+                        backgroundColor: "#3b82f6",
                         color: "#fff",
                         border: "none",
-                        padding: "6px 10px",
-                        borderRadius: "4px",
+                        borderRadius: "6px",
                         cursor: "pointer",
-                        fontSize: "12px",
                         fontWeight: "bold",
                       }}
                     >
-                      Sil
+                      İçine Gir / Yönet ➔
                     </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td
-                  colSpan="5"
-                  style={{
-                    padding: "20px",
-                    textAlign: "center",
-                    color: "#64748b",
-                  }}
-                >
-                  Bu pakette henüz hiç parça yok.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
-  // ==========================================
-  // GÖRÜNÜM 1: ANA EKRAN (Patronun İstediği Sade Liste)
-  // ==========================================
-  return (
-    <div style={{ paddingBottom: "20px" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "25px",
-        }}
-      >
-        <h2 style={{ margin: 0, color: "#f8fafc" }}>Kayıtlı İş Paketleri</h2>
-        <button
-          onClick={() => setShowPackageForm(!showPackageForm)}
-          style={{
-            backgroundColor: "#10b981",
-            color: "white",
-            padding: "10px 20px",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-            fontWeight: "bold",
-          }}
-        >
-          {showPackageForm ? "İptal" : "+ Yeni Paket Oluştur"}
-        </button>
-      </div>
-
-      {showPackageForm && (
-        <form
-          onSubmit={handleAddPackage}
-          style={{
-            backgroundColor: "#1e293b",
-            padding: "20px",
-            borderRadius: "8px",
-            marginBottom: "20px",
-            display: "flex",
-            gap: "10px",
-          }}
-        >
-          <input
-            type="text"
-            placeholder="İş Paketi Numarası"
-            value={packageNo}
-            onChange={(e) => setPackageNo(e.target.value)}
-            required
-            style={{ ...inputStyle, flex: 1 }}
-          />
-          <input
-            type="text"
-            placeholder="Notlar"
-            value={qualityNotes}
-            onChange={(e) => setQualityNotes(e.target.value)}
-            style={{ ...inputStyle, flex: 2 }}
-          />
-          <input
-            type="date"
-            value={deliveryDate}
-            onChange={(e) => setDeliveryDate(e.target.value)}
-            required
-            style={{ ...inputStyle, width: "150px" }}
-          />
-          <button
-            type="submit"
-            style={{
-              backgroundColor: "#0284c7",
-              color: "#fff",
-              padding: "10px 20px",
-              borderRadius: "6px",
-              border: "none",
-              cursor: "pointer",
-              fontWeight: "bold",
-            }}
-          >
-            Kaydet
-          </button>
-        </form>
+                    <button
+                      onClick={() => handleDeletePackage(wp.id)}
+                      style={{
+                        padding: "10px",
+                        backgroundColor: "transparent",
+                        color: "#ef4444",
+                        border: "1px solid #ef4444",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      ✖
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
-      {/* Patronun istediği SADE iş paketi görünümü */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-          gap: "20px",
-        }}
-      >
-        {workPackages.map((wp) => {
-          const packagePartsCount = parts.filter(
-            (p) => p.workPackage?.id === wp.id,
-          ).length;
-
-          return (
-            <div
-              key={wp.id}
+      {productionModalPart && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.7)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1100,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e293b",
+              padding: "25px",
+              borderRadius: "12px",
+              width: "400px",
+              border: "1px solid #475569",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h3
               style={{
-                backgroundColor: "#1e293b",
-                border: "1px solid #334155",
-                borderRadius: "12px",
-                padding: "20px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "15px",
+                margin: "0 0 15px 0",
+                color: "#ca8a04",
+                borderBottom: "1px solid #334155",
+                paddingBottom: "10px",
               }}
             >
-              <div>
-                <h3
-                  style={{
-                    margin: "0 0 5px 0",
-                    color: "#38bdf8",
-                    fontSize: "18px",
-                  }}
-                >
-                  📦 {wp.packageNo}
-                </h3>
-                <span style={{ fontSize: "13px", color: "#94a3b8" }}>
-                  İçerik: {packagePartsCount} Parça
+              ⚙️ Üretime Başla
+            </h3>
+            <div
+              style={{
+                color: "#cbd5e1",
+                marginBottom: "20px",
+                fontSize: "14px",
+              }}
+            >
+              <p style={{ margin: "5px 0" }}>
+                <strong>Parça No:</strong> {productionModalPart.partNo}{" "}
+                {productionModalPart.hasCoating && (
+                  <span style={{ color: "#d946ef" }}>
+                    (Boya/Kaplama Var 🎨)
+                  </span>
+                )}
+              </p>
+              <p style={{ margin: "5px 0" }}>
+                <strong>Ürün:</strong> {productionModalPart.productName}
+              </p>
+              <p style={{ margin: "5px 0" }}>
+                <strong>Hammadde:</strong>{" "}
+                <span style={{ color: "#10b981" }}>
+                  {productionModalPart.rawMaterial}
                 </span>
-                {renderDeadlineBadge(wp.deliveryDate)}
-              </div>
-
-              <div style={{ display: "flex", gap: "10px" }}>
-                <button
-                  onClick={() => setSelectedPackage(wp)}
-                  style={{
-                    flex: 1,
-                    padding: "10px",
-                    backgroundColor: "#3b82f6",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontWeight: "bold",
-                  }}
-                >
-                  İçine Gir / Yönet ➔
-                </button>
-                <button
-                  onClick={() => handleDeletePackage(wp.id)}
-                  style={{
-                    padding: "10px",
-                    backgroundColor: "transparent",
-                    color: "#ef4444",
-                    border: "1px solid #ef4444",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontWeight: "bold",
-                  }}
-                >
-                  ✖
-                </button>
-              </div>
+              </p>
             </div>
-          );
-        })}
-      </div>
+            <label
+              style={{
+                display: "block",
+                color: "#94a3b8",
+                marginBottom: "8px",
+                fontSize: "13px",
+              }}
+            >
+              Bu parça için tezgah ataması yapın:
+            </label>
+            <select
+              value={selectedMachineForProduction}
+              onChange={(e) => setSelectedMachineForProduction(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "12px",
+                borderRadius: "6px",
+                border: "1px solid #475569",
+                backgroundColor: "#0f172a",
+                color: "#fff",
+                marginBottom: "20px",
+                cursor: "pointer",
+              }}
+            >
+              <option value="" disabled>
+                Tezgah Seçin
+              </option>
+              {safeMachines.map((m) => {
+                const isBusy = safeParts.some(
+                  (p) => p.machine?.id === m.id && p.status === "URETIMDE",
+                );
+                return (
+                  <option key={m.id} value={m.id} disabled={isBusy}>
+                    {m.name} {isBusy ? " 🔴 (Şu an Dolu)" : " 🟢 (Boş)"}
+                  </option>
+                );
+              })}
+            </select>
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                onClick={() => {
+                  setProductionModalPart(null);
+                  setSelectedMachineForProduction("");
+                }}
+                style={{
+                  padding: "10px 15px",
+                  backgroundColor: "transparent",
+                  color: "#cbd5e1",
+                  border: "1px solid #475569",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleConfirmProduction}
+                style={{
+                  padding: "10px 15px",
+                  backgroundColor: "#ca8a04",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                }}
+              >
+                Tezgaha Gönder ve Başlat ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

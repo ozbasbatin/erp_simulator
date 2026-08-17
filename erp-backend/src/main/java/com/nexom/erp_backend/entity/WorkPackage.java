@@ -28,4 +28,10 @@ public class WorkPackage {
 
     @Column(name = "delivery_date")
     private String deliveryDate;
+
+    @Column(name = "customer_name")
+    private String customerName;
+
+    @Column(name = "order_date")
+    private String orderDate;
 }

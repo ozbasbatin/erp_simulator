@@ -6,8 +6,9 @@ export default function KanbanBoard({ parts, onRefresh }) {
 
   const kanbanParts = parts.filter((p) => p.status === "TAMAMLANDI");
 
-  const columns = [
+    const columns = [
     { id: "TESVIYE", title: "🪚 Tesviye", color: "#f59e0b" },
+    { id: "KAPLAMA", title: "🎨 Kaplama / Boya", color: "#d946ef" },
     { id: "KALITE_KONTROL", title: "🔎 Kalite Onayı", color: "#3b82f6" },
     {
       id: "TESLIMAT_BEKLIYOR",
@@ -32,6 +33,15 @@ export default function KanbanBoard({ parts, onRefresh }) {
 
     if (!part || part.postProcess === targetProcess) return;
 
+    // YENİ: Mantıksal Güvenlik Kilidi!
+    // Eğer parçada kaplama yoksa ve Kaplama kolonuna sürüklenirse uyar ve durdur.
+    if (targetProcess === "KAPLAMA" && !part.hasCoating) {
+      alert(
+        "⚠️ Bu parçanın siparişinde Kaplama/Boya işlemi bulunmuyor! Doğrudan Kalite Onayına sürükleyebilirsiniz.",
+      );
+      return;
+    }
+
     const updatedPart = {
       ...part,
       postProcess: targetProcess,
@@ -52,7 +62,7 @@ export default function KanbanBoard({ parts, onRefresh }) {
     }
   };
 
-  // YENİ: Kalite Belgesi Yükleme Fonksiyonu
+  // Kalite Belgesi Yükleme Fonksiyonu
   const handleFileUpload = async (e, part) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -71,7 +81,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
 
       const uploadData = await uploadRes.json();
 
-      // 2. Yüklenen dosyanın adını ilgili parçaya kaydet (PUT isteği)
       const updatedPart = {
         ...part,
         qualityDocPath: uploadData.fileName,
@@ -190,7 +199,13 @@ export default function KanbanBoard({ parts, onRefresh }) {
                     marginBottom: "5px",
                   }}
                 >
-                  Parça: {part.partNo}
+                  Parça: {part.partNo}{" "}
+                  {/* Kartın üzerinde kaplama ibaresi (ufak detay) */}
+                  {part.hasCoating && (
+                    <span style={{ fontSize: "12px", color: "#d946ef" }}>
+                      (🎨)
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
                   Ürün: {part.productName}
@@ -228,7 +243,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
                         onChange={(e) => handleFileUpload(e, part)}
                       />
 
-                      {/* Eğer daha önceden yüklenmiş bir belge Varsa Görüntüle Butonu Çıksın */}
                       {part.qualityDocPath && (
                         <a
                           href={`http://localhost:8080/api/files/${part.qualityDocPath}`}
@@ -250,7 +264,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
                         </a>
                       )}
 
-                      {/* Belge Yükleme/Değiştirme Butonu */}
                       <button
                         onClick={() =>
                           document.getElementById(`file-${part.id}`).click()
