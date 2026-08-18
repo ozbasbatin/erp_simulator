@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import MachineList from "./components/MachineList.jsx";
 import WorkPackageList from "./components/WorkPackageList.jsx";
 import KanbanBoard from "./components/KanbanBoard.jsx";
+import EmployeeManager from "./components/EmployeeManager.jsx";
 import "./App.css";
 
 function App() {
@@ -300,7 +301,6 @@ function App() {
           </div>
         </div>
 
-        {/* SENİN YENİ KURALLARINA GÖRE ROL BAZLI MENÜ */}
         <nav style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           {/* Üretim Makinelerini SADECE ADMIN görebilir */}
           {user.role === "ADMIN" && (
@@ -309,6 +309,15 @@ function App() {
               onClick={() => setActiveTab("production")}
             >
               🏭 Üretim & Makineler
+            </button>
+          )}
+
+          {user.role === "ADMIN" && (
+            <button
+              style={tabStyle("employees")}
+              onClick={() => setActiveTab("employees")}
+            >
+              👥 Çalışan Yönetimi
             </button>
           )}
 
@@ -356,6 +365,13 @@ function App() {
               />
             </div>
           )}
+
+        {/* Yeni Çalışan Yönetimi Sekmesi */}
+        {user.role === "ADMIN" && activeTab === "employees" && (
+          <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+            <EmployeeManager />
+          </div>
+        )}
 
         {/* Kanban Board'ı herkes görebilir */}
         {activeTab === "kanban" && (

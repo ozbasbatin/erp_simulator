@@ -47,6 +47,7 @@ public class PartController {
             existingPart.setDrawingPath(updatedPart.getDrawingPath());
             existingPart.setStatus(updatedPart.getStatus());
             existingPart.setPostProcess(updatedPart.getPostProcess());
+            existingPart.setQualityRequirements(updatedPart.getQualityRequirements());
 
             // İlişkileri koruyarak kaydet
             if (updatedPart.getMachine() != null) {
@@ -54,6 +55,9 @@ public class PartController {
             }
             if (updatedPart.getWorkPackage() != null) {
                 existingPart.setWorkPackage(updatedPart.getWorkPackage());
+            }
+            if (updatedPart.getOperator() != null) {
+                existingPart.setOperator(updatedPart.getOperator());
             }
 
             Part savedPart = partRepository.save(existingPart);

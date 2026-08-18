@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function WorkPackageList({
   workPackages = [],
@@ -24,14 +24,42 @@ export default function WorkPackageList({
   const [productName, setProductName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [rawMaterial, setRawMaterial] = useState("");
-  const [hasCoating, setHasCoating] = useState(false); // YENİ: Kaplama var mı?
+  const [hasCoating, setHasCoating] = useState(false);
+  const [qualityRequirements, setQualityRequirements] = useState("");
+  const [showQualityModal, setShowQualityModal] = useState(false);
+
+  // --- TEKNİK RESİM İÇİN ---
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploadingPart, setIsUploadingPart] = useState(false);
 
   // --- ÜRETİME ALMA MODAL STATE'LERİ ---
   const [productionModalPart, setProductionModalPart] = useState(null);
   const [selectedMachineForProduction, setSelectedMachineForProduction] =
     useState("");
 
-  // 1. Yeni İş Paketi Ekleme
+  // YENİ: OPERATÖR SEÇİM STATE'LERİ
+  const [selectedOperatorForProduction, setSelectedOperatorForProduction] =
+    useState("");
+  const [availableOperators, setAvailableOperators] = useState([]);
+
+  // YENİ: SİSTEMDEKİ OPERATÖR LİSTESİNİ ÇEKME
+  useEffect(() => {
+    const fetchOperators = async () => {
+      try {
+        const res = await fetch("http://localhost:8080/api/users/staff");
+        if (res.ok) {
+          const data = await res.json();
+          // Sadece operatör rolündekileri filtrele
+          const ops = data.filter((u) => u.role === "OPERATOR");
+          setAvailableOperators(ops);
+        }
+      } catch (error) {
+        console.error("Operatör listesi çekilemedi:", error);
+      }
+    };
+    fetchOperators();
+  }, []);
+
   const handleAddPackage = async (e) => {
     e.preventDefault();
     await fetch("http://localhost:8080/api/work-packages", {
@@ -55,7 +83,6 @@ export default function WorkPackageList({
     if (onRefresh) onRefresh();
   };
 
-  // 2. İş Paketi Silme
   const handleDeletePackage = async (id) => {
     if (window.confirm("Bu iş paketini silmek istediğinize emin misiniz?")) {
       const res = await fetch(`http://localhost:8080/api/work-packages/${id}`, {
@@ -73,7 +100,6 @@ export default function WorkPackageList({
     }
   };
 
-  // Kalan gün hesaplayıcı
   const renderDeadlineBadge = (dateStr) => {
     if (!dateStr) return null;
     const diffTime = new Date(dateStr) - new Date();
@@ -124,31 +150,71 @@ export default function WorkPackageList({
     );
   };
 
-  // 3. Paketin İçine Parça Ekleme (Kaplama Checkbox'ı ile birlikte)
   const handleAddPartInsidePackage = async (e) => {
     e.preventDefault();
-    await fetch("http://localhost:8080/api/parts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        partNo,
-        productName,
-        quantity: Number(quantity),
-        producedQuantity: 0,
-        rawMaterial,
-        hasCoating, // YENİ: Veritabanına kaplama bilgisini gönderiyoruz
-        status: "HAMMADDE_BEKLIYOR",
-        postProcess: "TESVIYE",
-        machine: null,
-        workPackage: { id: selectedPackage.id },
-      }),
-    });
-    setPartNo("");
-    setProductName("");
-    setQuantity("");
-    setRawMaterial("");
-    setHasCoating(false);
-    if (onRefresh) onRefresh();
+    if (quantity < 1) {
+      alert("Hata: Üretim adedi 1'den küçük olamaz!");
+      return;
+    }
+
+    setIsUploadingPart(true);
+    let uploadedFileName = null;
+
+    try {
+      // 1. Dosya seçilmişse önce onu backend'e yükle (PDF, JPG vb.)
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+
+        const uploadRes = await fetch(
+          "http://localhost:8080/api/files/upload",
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
+
+        if (!uploadRes.ok) throw new Error("Dosya yükleme başarısız!");
+        const uploadData = await uploadRes.json();
+        uploadedFileName = uploadData.fileName; // Backend'in verdiği yeni dosya adını al
+      }
+
+      // 2. Parçayı teknik resim yoluyla birlikte kaydet
+      await fetch("http://localhost:8080/api/parts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partNo,
+          productName,
+          quantity: Number(quantity),
+          producedQuantity: 0,
+          rawMaterial,
+          hasCoating,
+          qualityRequirements,
+          drawingPath: uploadedFileName,
+          status: "HAMMADDE_BEKLIYOR",
+          postProcess: "TESVIYE",
+          machine: null,
+          workPackage: { id: selectedPackage.id },
+        }),
+      });
+
+      // Başarılı olunca formu ve dosyayı temizle
+      setPartNo("");
+      setProductName("");
+      setQuantity("");
+      setRawMaterial("");
+      setQualityRequirements("");
+      setHasCoating(false);
+      setSelectedFile(null);
+
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Parça eklenirken hata:", error);
+      alert("Kayıt sırasında bir hata oluştu!");
+    } finally {
+      setIsUploadingPart(false);
+    }
   };
 
   const handleDeletePart = async (id) => {
@@ -175,11 +241,19 @@ export default function WorkPackageList({
       alert("Lütfen üretime başlamak için bir tezgah seçin!");
       return;
     }
+
+    // YENİ: OPERATÖR SEÇİM KONTROLÜ
+    if (!selectedOperatorForProduction) {
+      alert("Lütfen bu işlemi yapacak operatörü seçin!");
+      return;
+    }
+
     const isMachineBusy = safeParts.some(
       (p) =>
         p.machine?.id === Number(selectedMachineForProduction) &&
         p.status === "URETIMDE",
     );
+
     if (isMachineBusy) {
       alert(
         "⚠️ HATA: Seçilen makine şu anda dolu! Lütfen boş bir makine seçin.",
@@ -187,22 +261,26 @@ export default function WorkPackageList({
       return;
     }
 
+    // YENİ: GÖNDERİLEN VERİYE OPERATÖR ID'SİNİ EKLEDİK
     const updatedPart = {
       ...productionModalPart,
       status: "URETIMDE",
       machine: { id: Number(selectedMachineForProduction) },
+      operator: { id: Number(selectedOperatorForProduction) },
     };
+
     await fetch(`http://localhost:8080/api/parts/${productionModalPart.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedPart),
     });
+
     setProductionModalPart(null);
     setSelectedMachineForProduction("");
+    setSelectedOperatorForProduction(""); // Sıfırladık
     if (onRefresh) onRefresh();
   };
 
-  // Rozet Oluşturucu (KAPLAMA ROZETİ EKLENDİ)
   const getProcessBadge = (part) => {
     if (part.status === "HAMMADDE_BEKLIYOR")
       return (
@@ -432,6 +510,7 @@ export default function WorkPackageList({
               />
               <input
                 type="number"
+                min="1"
                 placeholder="Adet"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
@@ -447,7 +526,6 @@ export default function WorkPackageList({
                 style={{ ...inputStyle, flex: 1, minWidth: "150px" }}
               />
 
-              {/* YENİ: KAPLAMA/BOYA CHECKBOX'I */}
               <div
                 style={{
                   display: "flex",
@@ -478,20 +556,60 @@ export default function WorkPackageList({
                   Boya/Kaplama
                 </label>
               </div>
-
+              <button
+                type="button"
+                onClick={() => setShowQualityModal(true)}
+                style={{
+                  backgroundColor: qualityRequirements ? "#0284c7" : "#475569",
+                  color: "white",
+                  padding: "10px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  flex: 2,
+                  minWidth: "180px",
+                  fontWeight: "bold",
+                }}
+              >
+                {qualityRequirements
+                  ? "📝 İsterler Girildi (Düzenle)"
+                  : "📝 Kalite İsteri Ekle"}
+              </button>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  backgroundColor: "#1e293b",
+                  padding: "10px",
+                  borderRadius: "6px",
+                  border: "1px dashed #475569",
+                }}
+              >
+                <span style={{ color: "#94a3b8", fontSize: "13px" }}>
+                  Teknik Resim:
+                </span>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => setSelectedFile(e.target.files[0])}
+                  style={{ color: "#cbd5e1", fontSize: "12px", width: "190px" }}
+                />
+              </div>
               <button
                 type="submit"
+                disabled={isUploadingPart}
                 style={{
                   backgroundColor: "#16a34a",
                   color: "#fff",
                   padding: "10px 15px",
                   borderRadius: "6px",
                   border: "none",
-                  cursor: "pointer",
+                  cursor: isUploadingPart ? "wait" : "pointer",
                   fontWeight: "bold",
                 }}
               >
-                + Ekle
+                {isUploadingPart ? "Ekleniyor..." : "+ Ekle"}
               </button>
             </form>
           </div>
@@ -532,12 +650,27 @@ export default function WorkPackageList({
                           fontWeight: "bold",
                         }}
                       >
-                        {p.partNo}{" "}
+                        {p.partNo}
                         {p.hasCoating && (
                           <span style={{ fontSize: "10px", color: "#d946ef" }}>
                             {" "}
                             (🎨)
                           </span>
+                        )}
+                        {p.drawingPath && (
+                          <a
+                            href={`http://localhost:8080/api/files/${p.drawingPath}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              marginLeft: "8px",
+                              fontSize: "16px",
+                              textDecoration: "none",
+                            }}
+                            title="Teknik Resmi Aç"
+                          >
+                            📄
+                          </a>
                         )}
                       </td>
                       <td style={{ padding: "10px", color: "#cbd5e1" }}>
@@ -867,6 +1000,7 @@ export default function WorkPackageList({
         </>
       )}
 
+      {/* YENİLENEN ÜRETİME BAŞLAMA MODALI */}
       {productionModalPart && (
         <div
           style={{
@@ -927,6 +1061,8 @@ export default function WorkPackageList({
                 </span>
               </p>
             </div>
+
+            {/* MAKİNE SEÇİMİ */}
             <label
               style={{
                 display: "block",
@@ -947,7 +1083,7 @@ export default function WorkPackageList({
                 border: "1px solid #475569",
                 backgroundColor: "#0f172a",
                 color: "#fff",
-                marginBottom: "20px",
+                marginBottom: "15px",
                 cursor: "pointer",
               }}
             >
@@ -965,6 +1101,42 @@ export default function WorkPackageList({
                 );
               })}
             </select>
+
+            {/* YENİ: OPERATÖR SEÇİMİ */}
+            <label
+              style={{
+                display: "block",
+                color: "#94a3b8",
+                marginBottom: "8px",
+                fontSize: "13px",
+              }}
+            >
+              Bu iş paketinden sorumlu operatörü seçin:
+            </label>
+            <select
+              value={selectedOperatorForProduction}
+              onChange={(e) => setSelectedOperatorForProduction(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "12px",
+                borderRadius: "6px",
+                border: "1px solid #475569",
+                backgroundColor: "#0f172a",
+                color: "#fff",
+                marginBottom: "20px",
+                cursor: "pointer",
+              }}
+            >
+              <option value="" disabled>
+                Operatör Seçin
+              </option>
+              {availableOperators.map((op) => (
+                <option key={op.id} value={op.id}>
+                  {op.username}
+                </option>
+              ))}
+            </select>
+
             <div
               style={{
                 display: "flex",
@@ -976,6 +1148,7 @@ export default function WorkPackageList({
                 onClick={() => {
                   setProductionModalPart(null);
                   setSelectedMachineForProduction("");
+                  setSelectedOperatorForProduction("");
                 }}
                 style={{
                   padding: "10px 15px",
@@ -1002,6 +1175,103 @@ export default function WorkPackageList({
                 }}
               >
                 Tezgaha Gönder ve Başlat ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* YENİ: BÜYÜK KALİTE İSTERİ MODALI */}
+      {showQualityModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.7)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1200,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e293b",
+              padding: "25px",
+              borderRadius: "12px",
+              width: "500px",
+              border: "1px solid #475569",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 15px 0", color: "#f8fafc" }}>
+              📝 Kalite İsterleri (Üretim Sonu Ölçüm)
+            </h3>
+            <p
+              style={{
+                fontSize: "13px",
+                color: "#94a3b8",
+                marginBottom: "15px",
+              }}
+            >
+              Operatör üretimi bitirdikten sonra kalite kontrol mühendisinin
+              kumpas, mikrometre vb. ile yapacağı ölçümler ve dikkat etmesi
+              gereken toleransları buraya detaylıca yazın.
+            </p>
+            <textarea
+              rows="6"
+              placeholder="Örn:&#10;- Dış çap toleransı ±0.05 mm&#10;- Yüzey pürüzlülüğü Ra 1.6 olacak&#10;- Delik içi çapaklar kontrol edilecek"
+              value={qualityRequirements}
+              onChange={(e) => setQualityRequirements(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px",
+                borderRadius: "6px",
+                border: "1px solid #475569",
+                backgroundColor: "#0f172a",
+                color: "#fff",
+                resize: "vertical",
+                boxSizing: "border-box",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+                marginTop: "20px",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowQualityModal(false)}
+                style={{
+                  backgroundColor: "transparent",
+                  color: "#cbd5e1",
+                  border: "1px solid #475569",
+                  padding: "8px 15px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                }}
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowQualityModal(false)}
+                style={{
+                  backgroundColor: "#3b82f6",
+                  color: "#fff",
+                  border: "none",
+                  padding: "8px 15px",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                }}
+              >
+                Kaydet
               </button>
             </div>
           </div>

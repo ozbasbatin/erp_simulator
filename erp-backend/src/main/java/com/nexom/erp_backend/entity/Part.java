@@ -77,4 +77,7 @@ public class Part {
 
     @Column(name = "has_coating")
     private Boolean hasCoating = false;
+
+    @Column(name = "quality_requirements", columnDefinition = "TEXT")
+    private String qualityRequirements;
 }

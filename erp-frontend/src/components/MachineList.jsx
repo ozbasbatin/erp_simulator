@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function MachineList({ machines, parts = [], onRefresh }) {
   const [machineName, setMachineName] = useState("");
@@ -7,11 +7,26 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
 
   const [selectedMachine, setSelectedMachine] = useState(null);
   const [activePartInModal, setActivePartInModal] = useState(null);
-  const [producedQuantity, setProducedQuantity] = useState(0);
-  const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [operatorModalMachine, setOperatorModalMachine] = useState(null);
-  const [tempOperatorName, setTempOperatorName] = useState("");
+  const [showQualityModal, setShowQualityModal] = useState(false);
+
+  const [availableOperators, setAvailableOperators] = useState([]);
+
+  useEffect(() => {
+    const fetchOperators = async () => {
+      try {
+        const res = await fetch("http://localhost:8080/api/users/staff");
+        if (res.ok) {
+          const data = await res.json();
+          // Tüm çalışanları alıyoruz ki ID'den isim bulabilelim
+          setAvailableOperators(data);
+        }
+      } catch (error) {
+        console.error("Operatör listesi çekilemedi:", error);
+      }
+    };
+    fetchOperators();
+  }, []);
 
   const handleAddMachine = async (e) => {
     e.preventDefault();
@@ -38,96 +53,30 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
         );
         return;
       }
-
       onRefresh();
-    }
-  };
-
-  const handleSaveOperator = async () => {
-    if (!operatorModalMachine) return;
-
-    try {
-      const updatedMachine = {
-        ...operatorModalMachine,
-        operatorName: tempOperatorName,
-      };
-      const res = await fetch(
-        `http://localhost:8080/api/machines/${operatorModalMachine.id}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updatedMachine),
-        },
-      );
-
-      if (!res.ok) throw new Error("Sunucu güncellemeyi reddetti!");
-
-      setOperatorModalMachine(null);
-      onRefresh();
-    } catch (error) {
-      console.error(error);
-      alert("⚠️ Hata: Operatör atanamadı! Sunucu bağlantısını kontrol edin.");
     }
   };
 
   const openMachineModal = (machine, activePart) => {
     setSelectedMachine(machine);
     setActivePartInModal(activePart);
-    setProducedQuantity(
-      activePart && activePart.producedQuantity != null
-        ? activePart.producedQuantity
-        : 0,
-    );
-    setSelectedFile(null);
   };
 
-  const handleSaveMachineData = async () => {
+  const handleCompleteProduction = async () => {
     if (!activePartInModal) return;
+    if (
+      !window.confirm(
+        "Bu parçanın üretimini tamamlamak istediğinize emin misiniz?",
+      )
+    )
+      return;
+
     setIsUploading(true);
-
-    let drawingPath = activePartInModal.drawingPath;
-
     try {
-      // 1. Dosya seçilmişse önce onu yükle
-      if (selectedFile) {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-
-        const uploadRes = await fetch(
-          "http://localhost:8080/api/files/upload",
-          {
-            method: "POST",
-            body: formData,
-          },
-        );
-
-        if (!uploadRes.ok) throw new Error("Dosya yükleme başarısız!");
-
-        const uploadData = await uploadRes.json();
-        drawingPath = uploadData.fileName;
-      }
-
-      const newProducedQuantity = parseInt(producedQuantity, 10) || 0;
-      const isCompleted = newProducedQuantity >= activePartInModal.quantity;
-
-      if (newProducedQuantity > activePartInModal.quantity) {
-        alert(
-          `⚠️ Hata: Hedeflenen adetten (${activePartInModal.quantity}) fazla parça giremezsiniz!`,
-        );
-        setIsUploading(false);
-        return;
-      }
-
-      // 2. Güncellenecek veriyi hazırla
       const updatedPart = {
-        id: activePartInModal.id,
-        partNo: activePartInModal.partNo,
-        productName: activePartInModal.productName,
-        quantity: activePartInModal.quantity,
-        producedQuantity: newProducedQuantity,
-        status: isCompleted ? "TAMAMLANDI" : activePartInModal.status,
-        postProcess: activePartInModal.postProcess,
-        drawingPath: drawingPath,
+        ...activePartInModal,
+        producedQuantity: activePartInModal.quantity,
+        status: "TAMAMLANDI",
         machine: activePartInModal.machine
           ? { id: activePartInModal.machine.id }
           : null,
@@ -139,8 +88,6 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
           : null,
       };
 
-      console.log("Gönderilen Güncelleme Verisi:", updatedPart);
-
       const updateRes = await fetch(
         `http://localhost:8080/api/parts/${activePartInModal.id}`,
         {
@@ -150,18 +97,15 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
         },
       );
 
-      if (!updateRes.ok) {
-        const errText = await updateRes.text();
-        throw new Error(`Sunucu Hatası: ${errText}`);
-      }
+      if (!updateRes.ok) throw new Error("Kayıt Hatası");
 
       setSelectedMachine(null);
       onRefresh();
     } catch (error) {
-      console.error("Kayıt sırasında detaylı hata:", error);
-      alert("Kayıt başarısız oldu! Konsolu (F12) kontrol edin.");
+      console.error(error);
+      alert("Üretim tamamlanırken hata oluştu!");
     } finally {
-      setIsUploading(false); // Buton kilitlenmesini kesin olarak engeller
+      setIsUploading(false);
     }
   };
 
@@ -261,13 +205,23 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
             (p) => p.machine?.id === m.id && p.status === "URETIMDE",
           );
           const isProducing = !!activePart;
-
-          // Güvenli yüzde hesaplama (NaN hatası engellendi)
           const targetQty = activePart?.quantity || 1;
           const producedQty = activePart?.producedQuantity || 0;
           const progressPercent = isProducing
             ? Math.min(Math.round((producedQty / targetQty) * 100), 100)
             : 0;
+
+          // KURŞUN GEÇİRMEZ OPERATÖR EŞLEŞTİRMESİ
+          const opId = activePart?.operator?.id || activePart?.operator;
+
+          const assignedOp = availableOperators.find((o) => o.id == opId);
+
+          const operatorNameToShow =
+            activePart?.operator?.username ||
+            (assignedOp ? assignedOp.username : null) ||
+            "Boşta";
+
+          const isOpAssigned = operatorNameToShow !== "Boşta";
 
           return (
             <div
@@ -324,28 +278,11 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                 <span style={{ fontSize: "13px", color: "#cbd5e1" }}>
                   👨‍🔧 Operatör:{" "}
                   <strong
-                    style={{ color: m.operatorName ? "#10b981" : "#ef4444" }}
+                    style={{ color: isOpAssigned ? "#10b981" : "#ef4444" }}
                   >
-                    {m.operatorName || "Atanmadı"}
+                    {operatorNameToShow}
                   </strong>
                 </span>
-                <button
-                  onClick={() => {
-                    setOperatorModalMachine(m);
-                    setTempOperatorName(m.operatorName || "");
-                  }}
-                  style={{
-                    backgroundColor: "transparent",
-                    color: "#38bdf8",
-                    border: "1px solid #38bdf8",
-                    padding: "4px 8px",
-                    borderRadius: "4px",
-                    fontSize: "11px",
-                    cursor: "pointer",
-                  }}
-                >
-                  {m.operatorName ? "Değiştir" : "Ata"}
-                </button>
               </div>
 
               <div
@@ -354,6 +291,7 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                   alignItems: "center",
                   gap: "8px",
                   marginBottom: "15px",
+                  marginTop: "15px",
                 }}
               >
                 <div
@@ -385,11 +323,9 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
               >
                 {isProducing ? (
                   <>
-                    {/* Eklenecek 1: Makine İsmi */}
                     <div>
                       <strong>Makine:</strong> {m.name}
                     </div>
-
                     <div>
                       <strong>İş Paketi:</strong>{" "}
                       {activePart.workPackage?.packageNo}
@@ -400,12 +336,9 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                     <div>
                       <strong>Ürün:</strong> {activePart.productName}
                     </div>
-
-                    {/* Eklenecek 2: Parça Sayısı */}
                     <div>
                       <strong>Parça Sayısı:</strong> {activePart.quantity}
                     </div>
-
                     <div>
                       <strong>Adet:</strong> {producedQty} / {targetQty}
                     </div>
@@ -549,121 +482,86 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                     {activePartInModal.workPackage?.packageNo}
                   </p>
                   <p style={{ margin: "0 0 5px 0" }}>
-                    <strong>Parça No:</strong>{" "}
-                    {activePostProcessName(activePartInModal.partNo)}{" "}
-                    {activePartInModal.partNo}
+                    <strong>Parça No:</strong> {activePartInModal.partNo}
                   </p>
                   <p style={{ margin: 0 }}>
                     <strong>Ürün:</strong> {activePartInModal.productName}
                   </p>
                 </div>
 
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      marginBottom: "8px",
-                      color: "#94a3b8",
-                    }}
-                  >
-                    Gerçekte Üretilen Adet (Hedef: {activePartInModal.quantity}
-                    ):
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max={activePartInModal.quantity}
-                    value={producedQuantity}
-                    onChange={(e) => setProducedQuantity(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "10px",
-                      borderRadius: "6px",
-                      border: "1px solid #475569",
-                      backgroundColor: "#0f172a",
-                      color: "#fff",
-                      fontSize: "16px",
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      marginBottom: "8px",
-                      color: "#94a3b8",
-                    }}
-                  >
-                    Teknik Resim Ekle (PDF/JPG):
-                  </label>
-                  <input
-                    type="file"
-                    onChange={(e) => setSelectedFile(e.target.files[0])}
-                    style={{
-                      width: "100%",
-                      padding: "10px",
-                      borderRadius: "6px",
-                      border: "1px dashed #475569",
-                      backgroundColor: "#0f172a",
-                      color: "#cbd5e1",
-                    }}
-                  />
-                  {activePartInModal.drawingPath && !selectedFile && (
-                    <p
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "15px",
+                    marginTop: "15px",
+                  }}
+                >
+                  {/* KALİTE İSTERİ GÖSTER BUTONU (Eğer ister yazılmışsa görünür) */}
+                  {activePartInModal.qualityRequirements && (
+                    <button
+                      onClick={() => setShowQualityModal(true)}
                       style={{
-                        margin: "5px 0 0 0",
-                        fontSize: "12px",
-                        color: "#10b981",
+                        width: "100%",
+                        backgroundColor: "#f59e0b", // Dikkat çekici kehribar rengi
+                        color: "white",
+                        padding: "12px",
+                        borderRadius: "6px",
+                        border: "none",
+                        fontWeight: "bold",
+                        cursor: "pointer",
+                        fontSize: "15px",
+                        boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
                       }}
                     >
-                      Mevcut dosya yüklü: {activePartInModal.drawingPath}
-                    </p>
+                      📝 Kalite İsterini Görüntüle
+                    </button>
                   )}
-                </div>
-
-                <div
-                  style={{ display: "flex", gap: "10px", marginTop: "10px" }}
-                >
-                  <button
-                    onClick={handleSaveMachineData}
-                    disabled={isUploading}
-                    style={{
-                      flex: 1,
-                      backgroundColor: "#3b82f6",
-                      color: "white",
-                      padding: "12px",
-                      borderRadius: "6px",
-                      border: "none",
-                      fontWeight: "bold",
-                      cursor: isUploading ? "wait" : "pointer",
-                    }}
-                  >
-                    {isUploading ? "Kaydediliyor..." : "Kaydet"}
-                  </button>
+                  {/* EĞER TEKNİK RESİM YÜKLENMİŞSE GÖSTER */}
                   {activePartInModal.drawingPath && (
                     <a
                       href={`http://localhost:8080/api/files/${activePartInModal.drawingPath}`}
                       target="_blank"
                       rel="noreferrer"
                       style={{
-                        flex: 1,
+                        width: "100%",
                         backgroundColor: "#475569",
                         color: "white",
                         padding: "12px",
                         borderRadius: "6px",
-                        border: "none",
+                        border: "1px solid #64748b",
                         fontWeight: "bold",
                         textAlign: "center",
                         textDecoration: "none",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
+                        display: "block",
+                        boxSizing: "border-box",
                       }}
                     >
-                      Teknik Resmi Aç
+                      📄 Teknik Resmi Görüntüle
                     </a>
                   )}
+
+                  {/* ÜRETİMİ TAMAMLA BUTONU */}
+                  <button
+                    onClick={handleCompleteProduction}
+                    disabled={isUploading}
+                    style={{
+                      width: "100%",
+                      backgroundColor: "#10b981",
+                      color: "white",
+                      padding: "15px",
+                      borderRadius: "6px",
+                      border: "none",
+                      fontWeight: "bold",
+                      cursor: isUploading ? "wait" : "pointer",
+                      fontSize: "16px",
+                      boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    {isUploading
+                      ? "İşlem Kapatılıyor..."
+                      : "Üretimi Tamamla ✅"}
+                  </button>
                 </div>
               </div>
             ) : (
@@ -680,8 +578,8 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
           </div>
         </div>
       )}
-      {/* YENİ: Şık Operatör Atama Kutucuğu (Modal) */}
-      {operatorModalMachine && (
+      {/* YENİ: OPERATÖR İÇİN KALİTE İSTERİ GÖSTERİM MODALI */}
+      {showQualityModal && (
         <div
           style={{
             position: "fixed",
@@ -689,11 +587,11 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
             left: 0,
             width: "100vw",
             height: "100vh",
-            backgroundColor: "rgba(0,0,0,0.7)",
+            backgroundColor: "rgba(0,0,0,0.8)",
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
-            zIndex: 1100, // Diğer modalın üstünde çıksın diye yüksek verdik
+            zIndex: 1300,
           }}
         >
           <div
@@ -701,66 +599,59 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
               backgroundColor: "#1e293b",
               padding: "25px",
               borderRadius: "12px",
-              width: "350px",
+              width: "450px",
               border: "1px solid #475569",
               boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
             }}
           >
             <h3 style={{ margin: "0 0 15px 0", color: "#f8fafc" }}>
-              👨‍🔧 {operatorModalMachine.name} - Operatör Seçimi
+              📝 Kalite İsterleri ve Notlar
             </h3>
-
-            <input
-              type="text"
-              placeholder="Operatörün Adı Soyadı"
-              value={tempOperatorName}
-              onChange={(e) => setTempOperatorName(e.target.value)}
-              autoFocus
+            <p
               style={{
-                width: "100%",
-                padding: "10px",
-                borderRadius: "6px",
-                border: "1px solid #475569",
-                backgroundColor: "#0f172a",
-                color: "#fff",
-                marginBottom: "20px",
-                boxSizing: "border-box",
+                fontSize: "13px",
+                color: "#94a3b8",
+                marginBottom: "15px",
               }}
-            />
-
+            >
+              Üretime devam ederken aşağıdaki kalite standartlarına ve ölçülere
+              dikkat ediniz:
+            </p>
+            <div
+              style={{
+                backgroundColor: "#0f172a",
+                padding: "15px",
+                borderRadius: "8px",
+                color: "#cbd5e1",
+                minHeight: "100px",
+                border: "1px solid #475569",
+                whiteSpace: "pre-wrap",
+                lineHeight: "1.6",
+                fontSize: "14px",
+              }}
+            >
+              {activePartInModal?.qualityRequirements}
+            </div>
             <div
               style={{
                 display: "flex",
-                gap: "10px",
                 justifyContent: "flex-end",
+                marginTop: "20px",
               }}
             >
               <button
-                onClick={() => setOperatorModalMachine(null)}
+                onClick={() => setShowQualityModal(false)}
                 style={{
-                  padding: "8px 15px",
-                  backgroundColor: "transparent",
-                  color: "#cbd5e1",
-                  border: "1px solid #475569",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
-              >
-                İptal
-              </button>
-              <button
-                onClick={handleSaveOperator}
-                style={{
-                  padding: "8px 15px",
-                  backgroundColor: "#10b981",
+                  backgroundColor: "#3b82f6",
                   color: "white",
+                  padding: "10px 20px",
                   border: "none",
                   borderRadius: "6px",
                   fontWeight: "bold",
                   cursor: "pointer",
                 }}
               >
-                Kaydet
+                Anladım, Kapat
               </button>
             </div>
           </div>
@@ -768,9 +659,4 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
       )}
     </div>
   );
-}
-
-// Küçük bir yardımcı fonksiyon (Parça no yazım hatasını önlemek için)
-function activePostProcessName(val) {
-  return "";
 }

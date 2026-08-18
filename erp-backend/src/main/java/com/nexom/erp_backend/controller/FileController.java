@@ -1,5 +1,8 @@
 package com.nexom.erp_backend.controller;
 
+import org.springframework.http.ContentDisposition;
+import java.nio.charset.StandardCharsets;
+
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
@@ -66,16 +69,18 @@ public class FileController {
             Resource resource = new UrlResource(filePath.toUri());
 
             if (resource.exists()) {
-                // YENİ: Dosyanın tipini (JPG, PDF, PNG) otomatik tespit et
                 String contentType = Files.probeContentType(filePath);
                 if (contentType == null) {
                     contentType = "application/octet-stream";
                 }
 
+                ContentDisposition contentDisposition = ContentDisposition.builder("inline")
+                        .filename(resource.getFilename(), StandardCharsets.UTF_8)
+                        .build();
+
                 return ResponseEntity.ok()
-                        // YENİ: Tarayıcıya dosyanın tipini bildir
                         .contentType(org.springframework.http.MediaType.parseMediaType(contentType))
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+                        .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
                         .body(resource);
             } else {
                 return ResponseEntity.notFound().build();

@@ -4,9 +4,11 @@ export default function KanbanBoard({ parts, onRefresh }) {
   const fileInputRef = useRef(null);
   const [uploadingPartId, setUploadingPartId] = useState(null);
 
+  const [qualityModalPart, setQualityModalPart] = useState(null);
+
   const kanbanParts = parts.filter((p) => p.status === "TAMAMLANDI");
 
-    const columns = [
+  const columns = [
     { id: "TESVIYE", title: "🪚 Tesviye", color: "#f59e0b" },
     { id: "KAPLAMA", title: "🎨 Kaplama / Boya", color: "#d946ef" },
     { id: "KALITE_KONTROL", title: "🔎 Kalite Onayı", color: "#3b82f6" },
@@ -33,11 +35,21 @@ export default function KanbanBoard({ parts, onRefresh }) {
 
     if (!part || part.postProcess === targetProcess) return;
 
-    // YENİ: Mantıksal Güvenlik Kilidi!
-    // Eğer parçada kaplama yoksa ve Kaplama kolonuna sürüklenirse uyar ve durdur.
+    // 🛑 1. GÜVENLİK KİLİDİ: Kaplaması olmayan parçayı kaplamaya sokma
     if (targetProcess === "KAPLAMA" && !part.hasCoating) {
       alert(
         "⚠️ Bu parçanın siparişinde Kaplama/Boya işlemi bulunmuyor! Doğrudan Kalite Onayına sürükleyebilirsiniz.",
+      );
+      return;
+    }
+
+    // 🛑 2. GÜVENLİK KİLİDİ (YENİ): Kaliteden sürükleyerek çıkarmayı engelle!
+    if (
+      part.postProcess === "KALITE_KONTROL" &&
+      targetProcess === "TESLIMAT_BEKLIYOR"
+    ) {
+      alert(
+        "⚠️ DİKKAT: Kalite onayı sürükleyerek yapılamaz! Lütfen '📝 Kaliteyi İncele' butonuna tıklayarak ölçüm sonuçlarını onaylayın.",
       );
       return;
     }
@@ -62,7 +74,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
     }
   };
 
-  // Kalite Belgesi Yükleme Fonksiyonu
   const handleFileUpload = async (e, part) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -104,7 +115,39 @@ export default function KanbanBoard({ parts, onRefresh }) {
       alert("Belge yüklenirken bir hata oluştu.");
     } finally {
       setUploadingPartId(null);
-      e.target.value = null; // Input'u temizle ki aynı dosya tekrar seçilebilsin
+      e.target.value = null;
+    }
+  };
+
+  // YENİ: Kalite Panelinden Ölçümü Onaylama ve Teslimata Gönderme
+  const handleQualityApprove = async () => {
+    if (!qualityModalPart) return;
+
+    const updatedPart = {
+      ...qualityModalPart,
+      postProcess: "TESLIMAT_BEKLIYOR", // Onaylanınca otomatik buraya uçar
+      machine: qualityModalPart.machine
+        ? { id: qualityModalPart.machine.id }
+        : null,
+      workPackage: qualityModalPart.workPackage
+        ? { id: qualityModalPart.workPackage.id }
+        : null,
+      operator: qualityModalPart.operator
+        ? { id: qualityModalPart.operator.id }
+        : null,
+    };
+
+    try {
+      await fetch(`http://localhost:8080/api/parts/${qualityModalPart.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedPart),
+      });
+      setQualityModalPart(null); // Modalı kapat
+      onRefresh(); // Panoyu yenile
+    } catch (error) {
+      console.error("Kalite onayı sırasında hata:", error);
+      alert("Onaylama sırasında bir hata oluştu!");
     }
   };
 
@@ -200,7 +243,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
                   }}
                 >
                   Parça: {part.partNo}{" "}
-                  {/* Kartın üzerinde kaplama ibaresi (ufak detay) */}
                   {part.hasCoating && (
                     <span style={{ fontSize: "12px", color: "#d946ef" }}>
                       (🎨)
@@ -260,7 +302,7 @@ export default function KanbanBoard({ parts, onRefresh }) {
                             alignItems: "center",
                           }}
                         >
-                          Görüntüle 👁️
+                          Belge 👁️
                         </a>
                       )}
 
@@ -290,10 +332,174 @@ export default function KanbanBoard({ parts, onRefresh }) {
                     </div>
                   )}
                 </div>
+
+                {/* YENİ: Kaliteyi İncele Butonu SADECE Kalite kolonundayken çıksın */}
+                {col.id === "KALITE_KONTROL" && (
+                  <button
+                    onClick={() => setQualityModalPart(part)}
+                    style={{
+                      width: "100%",
+                      marginTop: "12px",
+                      backgroundColor: "#f59e0b", // Dikkat çekici turuncu/kehribar
+                      color: "#fff",
+                      border: "none",
+                      padding: "8px",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    📝 Kaliteyi İncele ve Onayla
+                  </button>
+                )}
               </div>
             ))}
         </div>
       ))}
+
+      {/* YENİ: KALİTE ONAY PENCERESİ (MODAL) */}
+      {qualityModalPart && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1500,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e293b",
+              padding: "25px",
+              borderRadius: "12px",
+              width: "450px",
+              border: "1px solid #475569",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 15px 0", color: "#f8fafc" }}>
+              🔎 Kalite Kontrol ve Ölçüm Onayı
+            </h3>
+
+            <div
+              style={{
+                backgroundColor: "#0f172a",
+                padding: "15px",
+                borderRadius: "8px",
+                color: "#cbd5e1",
+                marginBottom: "15px",
+                border: "1px solid #475569",
+              }}
+            >
+              <p style={{ margin: "0 0 5px 0" }}>
+                <strong>Parça No:</strong> {qualityModalPart.partNo}
+              </p>
+              <p style={{ margin: "0 0 5px 0" }}>
+                <strong>Ürün:</strong> {qualityModalPart.productName}
+              </p>
+            </div>
+
+            {qualityModalPart.qualityRequirements ? (
+              <div
+                style={{
+                  backgroundColor: "#334155",
+                  padding: "15px",
+                  borderRadius: "8px",
+                  color: "#f1f5f9",
+                  marginBottom: "15px",
+                  whiteSpace: "pre-wrap",
+                  fontSize: "14px",
+                  lineHeight: "1.5",
+                }}
+              >
+                <strong style={{ color: "#f59e0b" }}>
+                  📝 Planlamacı Notları / İsterler:
+                </strong>
+                <br />
+                <br />
+                {qualityModalPart.qualityRequirements}
+              </div>
+            ) : (
+              <div
+                style={{
+                  color: "#94a3b8",
+                  fontStyle: "italic",
+                  marginBottom: "15px",
+                }}
+              >
+                Bu parça için özel bir kalite isteri girilmemiş.
+              </div>
+            )}
+
+            <div
+              style={{ display: "flex", gap: "10px", flexDirection: "column" }}
+            >
+              {/* Teknik Resmi Aç Butonu */}
+              {qualityModalPart.drawingPath && (
+                <a
+                  href={`http://localhost:8080/api/files/${qualityModalPart.drawingPath}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    backgroundColor: "#475569",
+                    color: "#fff",
+                    padding: "12px",
+                    borderRadius: "6px",
+                    textAlign: "center",
+                    textDecoration: "none",
+                    fontWeight: "bold",
+                    border: "1px solid #64748b",
+                  }}
+                >
+                  📄 Teknik Resmi Aç ve Ölçüleri Gör
+                </a>
+              )}
+
+              {/* Onay Butonu */}
+              <button
+                onClick={handleQualityApprove}
+                style={{
+                  backgroundColor: "#10b981",
+                  color: "#fff",
+                  border: "none",
+                  padding: "15px",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  marginTop: "10px",
+                  boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
+                }}
+              >
+                ✅ Ölçüm Tamamlandı (Teslimata Gönder)
+              </button>
+            </div>
+
+            <button
+              onClick={() => setQualityModalPart(null)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#94a3b8",
+                width: "100%",
+                marginTop: "15px",
+                cursor: "pointer",
+                fontSize: "14px",
+              }}
+            >
+              İptal Et ve Kapat
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

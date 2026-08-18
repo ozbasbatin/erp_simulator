@@ -18,7 +18,7 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
         quantity: Number(quantity),
         producedQuantity: 0,
         status: "BEKLIYOR",
-        postProcess: "TESVIYE", // Kanban panosunun ilk adımı için hazırlık
+        postProcess: "TESVIYE",
         machine: { id: Number(machineId) },
         workPackage: { id: Number(selectedWpId) },
       }),
@@ -31,7 +31,6 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
     onRefresh();
   };
 
-  // DÜZELTİLEN KISIM: Tam nesne göndererek standart PUT isteği atıyoruz
   const handleUpdateStatus = async (part, newStatus) => {
     const updatedPart = {
       ...part,
@@ -79,7 +78,7 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
         border: "1px solid #334155",
       }}
     >
-      <h2>Parça Üretim Takibi</h2>
+      <h2>Parça Üretim ve Kalite Takibi</h2>
       <form
         onSubmit={handleAddPart}
         style={{
@@ -177,7 +176,7 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
             <th style={{ padding: "8px" }}>Makine</th>
             <th style={{ padding: "8px" }}>Adet</th>
             <th style={{ padding: "8px" }}>Durum</th>
-            <th style={{ padding: "8px" }}>İşlem</th>
+            <th style={{ padding: "8px" }}>Kalite Kontrol & İşlemler</th>
           </tr>
         </thead>
         <tbody>
@@ -206,40 +205,104 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
                   {p.status}
                 </span>
               </td>
-              <td style={{ padding: "8px", display: "flex", gap: "5px" }}>
-                {/* DÜZELTME: Sadece ID değil, p objesinin tamamını gönderiyoruz */}
-                {p.status === "BEKLIYOR" && (
-                  <button
-                    onClick={() => handleUpdateStatus(p, "URETIMDE")}
-                    style={{
-                      backgroundColor: "#ca8a04",
-                      color: "#000",
-                      border: "none",
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "12px",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    Üretime Al
-                  </button>
-                )}
-                <button
-                  onClick={() => handleDeletePart(p.id)}
+              <td style={{ padding: "8px" }}>
+                <div
                   style={{
-                    backgroundColor: "#ef4444",
-                    color: "#fff",
-                    border: "none",
-                    padding: "4px 8px",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                    fontSize: "12px",
-                    fontWeight: "bold",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
                   }}
                 >
-                  Sil
-                </button>
+                  {/* KALİTE İSTERLERİ GÖSTERİMİ */}
+                  {p.qualityRequirements && (
+                    <div style={{ fontSize: "12px", color: "#f59e0b" }}>
+                      <strong>İster:</strong> {p.qualityRequirements}
+                    </div>
+                  )}
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "5px",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    {/* TEKNİK RESMİ AÇ BUTONU */}
+                    {p.drawingPath && (
+                      <a
+                        href={`http://localhost:8080/api/files/${p.drawingPath}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          backgroundColor: "#3b82f6",
+                          color: "#fff",
+                          padding: "4px 8px",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                          textDecoration: "none",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        📄 Teknik Resim
+                      </a>
+                    )}
+
+                    {/* ÜRETİME AL BUTONU */}
+                    {p.status === "BEKLIYOR" && (
+                      <button
+                        onClick={() => handleUpdateStatus(p, "URETIMDE")}
+                        style={{
+                          backgroundColor: "#ca8a04",
+                          color: "#000",
+                          border: "none",
+                          padding: "4px 8px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        Üretime Al
+                      </button>
+                    )}
+
+                    {/* ÖLÇÜM TAMAMLANDI / KALİTE ONAY BUTONU */}
+                    {p.status === "TAMAMLANDI" && (
+                      <button
+                        onClick={() => handleUpdateStatus(p, "TESLIM_EDILDI")}
+                        style={{
+                          backgroundColor: "#10b981",
+                          color: "#fff",
+                          border: "none",
+                          padding: "4px 8px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        ✅ Onayla / Teslimata Gönder
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => handleDeletePart(p.id)}
+                      style={{
+                        backgroundColor: "#ef4444",
+                        color: "#fff",
+                        border: "none",
+                        padding: "4px 8px",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontSize: "11px",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      Sil
+                    </button>
+                  </div>
+                </div>
               </td>
             </tr>
           ))}
