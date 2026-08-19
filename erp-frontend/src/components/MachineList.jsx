@@ -213,14 +213,11 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
 
           // KURŞUN GEÇİRMEZ OPERATÖR EŞLEŞTİRMESİ
           const opId = activePart?.operator?.id || activePart?.operator;
-
           const assignedOp = availableOperators.find((o) => o.id == opId);
-
           const operatorNameToShow =
             activePart?.operator?.username ||
             (assignedOp ? assignedOp.username : null) ||
             "Boşta";
-
           const isOpAssigned = operatorNameToShow !== "Boşta";
 
           return (
@@ -315,7 +312,7 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
 
               <div
                 style={{
-                  minHeight: "80px",
+                  minHeight: "100px", // Firma da geldiği için biraz daha alan açtık
                   color: "#cbd5e1",
                   fontSize: "14px",
                   lineHeight: "1.6",
@@ -326,6 +323,12 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                     <div>
                       <strong>Makine:</strong> {m.name}
                     </div>
+                    {/* YENİ: FİRMA / MÜŞTERİ BİLGİSİ */}
+                    {activePart.workPackage?.customer && (
+                      <div style={{ color: "#34d399", fontWeight: "bold" }}>
+                        🏢 Firma: {activePart.workPackage.customer.companyName}
+                      </div>
+                    )}
                     <div>
                       <strong>İş Paketi:</strong>{" "}
                       {activePart.workPackage?.packageNo}
@@ -477,6 +480,21 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                     color: "#cbd5e1",
                   }}
                 >
+                  {/* YENİ: OPERATÖR PANELİNDE FİRMA BİLGİSİ */}
+                  {activePartInModal.workPackage?.customer && (
+                    <p
+                      style={{
+                        margin: "0 0 10px 0",
+                        color: "#34d399",
+                        fontWeight: "bold",
+                        borderBottom: "1px solid #334155",
+                        paddingBottom: "8px",
+                      }}
+                    >
+                      🏢 Firma:{" "}
+                      {activePartInModal.workPackage.customer.companyName}
+                    </p>
+                  )}
                   <p style={{ margin: "0 0 5px 0" }}>
                     <strong>İş Paketi:</strong>{" "}
                     {activePartInModal.workPackage?.packageNo}
@@ -497,13 +515,12 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                     marginTop: "15px",
                   }}
                 >
-                  {/* KALİTE İSTERİ GÖSTER BUTONU (Eğer ister yazılmışsa görünür) */}
                   {activePartInModal.qualityRequirements && (
                     <button
                       onClick={() => setShowQualityModal(true)}
                       style={{
                         width: "100%",
-                        backgroundColor: "#f59e0b", // Dikkat çekici kehribar rengi
+                        backgroundColor: "#f59e0b",
                         color: "white",
                         padding: "12px",
                         borderRadius: "6px",
@@ -517,7 +534,6 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                       📝 Kalite İsterini Görüntüle
                     </button>
                   )}
-                  {/* EĞER TEKNİK RESİM YÜKLENMİŞSE GÖSTER */}
                   {activePartInModal.drawingPath && (
                     <a
                       href={`http://localhost:8080/api/files/${activePartInModal.drawingPath}`}
@@ -541,7 +557,6 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                     </a>
                   )}
 
-                  {/* ÜRETİMİ TAMAMLA BUTONU */}
                   <button
                     onClick={handleCompleteProduction}
                     disabled={isUploading}
@@ -578,7 +593,7 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
           </div>
         </div>
       )}
-      {/* YENİ: OPERATÖR İÇİN KALİTE İSTERİ GÖSTERİM MODALI */}
+
       {showQualityModal && (
         <div
           style={{

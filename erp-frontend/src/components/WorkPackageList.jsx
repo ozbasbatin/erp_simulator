@@ -5,21 +5,21 @@ export default function WorkPackageList({
   parts = [],
   machines = [],
   onRefresh,
+  user, // APP.JSX'TEN GELECEK
 }) {
   const safePackages = Array.isArray(workPackages) ? workPackages : [];
   const safeParts = Array.isArray(parts) ? parts : [];
   const safeMachines = Array.isArray(machines) ? machines : [];
 
-  // --- İŞ PAKETİ STATE'LERİ ---
   const [packageNo, setPackageNo] = useState("");
   const [qualityNotes, setQualityNotes] = useState("");
   const [showPackageForm, setShowPackageForm] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [deliveryDate, setDeliveryDate] = useState("");
-  const [customerName, setCustomerName] = useState("");
   const [orderDate, setOrderDate] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [availableCustomers, setAvailableCustomers] = useState([]);
 
-  // --- PARÇA EKLEME STATE'LERİ ---
   const [partNo, setPartNo] = useState("");
   const [productName, setProductName] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -28,69 +28,89 @@ export default function WorkPackageList({
   const [qualityRequirements, setQualityRequirements] = useState("");
   const [showQualityModal, setShowQualityModal] = useState(false);
 
-  // --- TEKNİK RESİM İÇİN ---
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploadingPart, setIsUploadingPart] = useState(false);
 
-  // --- ÜRETİME ALMA MODAL STATE'LERİ ---
   const [productionModalPart, setProductionModalPart] = useState(null);
   const [selectedMachineForProduction, setSelectedMachineForProduction] =
     useState("");
-
-  // YENİ: OPERATÖR SEÇİM STATE'LERİ
   const [selectedOperatorForProduction, setSelectedOperatorForProduction] =
     useState("");
   const [availableOperators, setAvailableOperators] = useState([]);
 
-  // YENİ: SİSTEMDEKİ OPERATÖR LİSTESİNİ ÇEKME
   useEffect(() => {
-    const fetchOperators = async () => {
+    const fetchDropdownData = async () => {
       try {
-        const res = await fetch("http://localhost:8080/api/users/staff");
-        if (res.ok) {
-          const data = await res.json();
-          // Sadece operatör rolündekileri filtrele
-          const ops = data.filter((u) => u.role === "OPERATOR");
-          setAvailableOperators(ops);
+        const opRes = await fetch("http://localhost:8080/api/users/staff");
+        if (opRes.ok) {
+          const opData = await opRes.json();
+          setAvailableOperators(opData.filter((u) => u.role === "OPERATOR"));
+        }
+        const custRes = await fetch("http://localhost:8080/api/customers");
+        if (custRes.ok) {
+          const custData = await custRes.json();
+          setAvailableCustomers(custData);
         }
       } catch (error) {
-        console.error("Operatör listesi çekilemedi:", error);
+        console.error("Listeler çekilemedi:", error);
       }
     };
-    fetchOperators();
+    fetchDropdownData();
   }, []);
 
   const handleAddPackage = async (e) => {
     e.preventDefault();
-    await fetch("http://localhost:8080/api/work-packages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        packageNo,
-        qualityNotes,
-        deliveryDate,
-        customerName,
-        orderDate,
-        createdAt: new Date().toISOString(),
-      }),
-    });
-    setPackageNo("");
-    setQualityNotes("");
-    setDeliveryDate("");
-    setCustomerName("");
-    setOrderDate("");
-    setShowPackageForm(false);
-    if (onRefresh) onRefresh();
+    if (!selectedCustomerId) {
+      alert("Lütfen bir müşteri seçiniz!");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:8080/api/work-packages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          packageNo,
+          qualityNotes,
+          deliveryDate,
+          orderDate,
+          createdAt: new Date().toISOString(),
+          customer: { id: Number(selectedCustomerId) },
+        }),
+      });
+
+      // EĞER BACKEND HATA VERİRSE (Örn: Aynı numara varsa) YAKALA
+      if (!res.ok) {
+        alert(
+          "⚠️ Hata: Bu İş Paketi Numarası (Package No) zaten kullanımda! Lütfen farklı bir numara giriniz.",
+        );
+        return;
+      }
+
+      setPackageNo("");
+      setQualityNotes("");
+      setDeliveryDate("");
+      setOrderDate("");
+      setSelectedCustomerId("");
+      setShowPackageForm(false);
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Paket eklenirken hata:", error);
+    }
   };
 
-  const handleDeletePackage = async (id) => {
-    if (window.confirm("Bu iş paketini silmek istediğinize emin misiniz?")) {
+  const handleCancelPackage = async (id) => {
+    if (
+      window.confirm(
+        "Bu iş paketini İPTAL ETMEK istediğinize emin misiniz? (Geçmişte görünmeye devam eder)",
+      )
+    ) {
       const res = await fetch(`http://localhost:8080/api/work-packages/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
         alert(
-          "⚠️ UYARI: Bu iş paketine kayıtlı parçalar var! Paketi silebilmek için önce içindeki parçaları silmelisiniz.",
+          "⚠️ UYARI: Bu iş paketine kayıtlı parçalar var! Paketi iptal edebilmek için önce içindeki parçaları silmelisiniz.",
         );
         return;
       }
@@ -150,36 +170,131 @@ export default function WorkPackageList({
     );
   };
 
+  const handlePrintWorkOrder = (pkg) => {
+    const pkgParts = safeParts.filter((p) => p.workPackage?.id === pkg.id);
+
+    // 1. Tarayıcının ana başlığını geçici olarak dosya adı yapıyoruz
+    const originalTitle = document.title;
+    document.title = `Is_Emri_${pkg.packageNo}`;
+
+    // 2. Gizli iframe oluşturma
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write("<html><head><title>İş Emri - " + pkg.packageNo + "</title>");
+    doc.write(`
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #333; }
+        .header { display: flex; justify-content: space-between; border-bottom: 3px solid #1e293b; padding-bottom: 10px; margin-bottom: 20px; }
+        h1 { margin: 0; color: #1e293b; font-size: 24px; }
+        .info-box { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .info-box p { margin: 5px 0; font-size: 14px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+        th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
+        th { background-color: #f1f5f9; color: #1e293b; }
+        .footer { margin-top: 40px; display: flex; justify-content: space-between; }
+        .sign-box { text-align: center; }
+      </style>
+    `);
+    doc.write("</head><body>");
+
+    // Başlık
+    doc.write(`
+      <div class="header">
+        <h1>NEXOM ERP - ÜRETİM İŞ EMRİ</h1>
+        <h2>Paket No: ${pkg.packageNo}</h2>
+      </div>
+    `);
+
+    // Bilgiler
+    doc.write(`
+      <div class="info-box">
+        <p><strong>Firma / Müşteri:</strong> ${pkg.customer?.companyName || "Bilinmiyor"}</p>
+        <p><strong>Sipariş Tarihi:</strong> ${pkg.orderDate} &nbsp;&nbsp;|&nbsp;&nbsp; <strong>Hedef Teslimat:</strong> ${pkg.deliveryDate}</p>
+        <p><strong>Planlamacı Notları:</strong> ${pkg.qualityNotes || "Yok"}</p>
+      </div>
+    `);
+
+    // Tablo
+    doc.write(`
+      <table>
+        <thead>
+          <tr>
+            <th>Parça No</th>
+            <th>Ürün Adı</th>
+            <th>Üretim Adedi</th>
+            <th>Hammadde</th>
+            <th>Boya/Kaplama</th>
+          </tr>
+        </thead>
+        <tbody>
+    `);
+
+    if (pkgParts.length === 0) {
+      doc.write(
+        '<tr><td colspan="5" style="text-align:center;">Bu iş emrine henüz parça eklenmemiş.</td></tr>',
+      );
+    } else {
+      pkgParts.forEach((p) => {
+        doc.write(`
+          <tr>
+            <td><strong>${p.partNo}</strong></td>
+            <td>${p.productName}</td>
+            <td>${p.quantity} Adet</td>
+            <td>${p.rawMaterial}</td>
+            <td>${p.hasCoating ? "Yapılacak" : "Yok"}</td>
+          </tr>
+        `);
+      });
+    }
+
+    doc.write("</tbody></table>");
+
+    // İmza
+    doc.write(`
+      <div class="footer">
+        <div class="sign-box"><p><strong>Planlama Onayı</strong></p><p>___________________</p></div>
+        <div class="sign-box"><p><strong>Üretim Sorumlusu</strong></p><p>___________________</p></div>
+      </div>
+    `);
+
+    doc.write("</body></html>");
+    doc.close();
+
+    // Yazdırma penceresi
+    setTimeout(() => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+
+      // Temizlik ve başlığı eski haline getirme
+      document.body.removeChild(iframe);
+      document.title = originalTitle;
+    }, 300);
+  };
+
   const handleAddPartInsidePackage = async (e) => {
     e.preventDefault();
     if (quantity < 1) {
       alert("Hata: Üretim adedi 1'den küçük olamaz!");
       return;
     }
-
     setIsUploadingPart(true);
     let uploadedFileName = null;
-
     try {
-      // 1. Dosya seçilmişse önce onu backend'e yükle (PDF, JPG vb.)
       if (selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
-
         const uploadRes = await fetch(
           "http://localhost:8080/api/files/upload",
-          {
-            method: "POST",
-            body: formData,
-          },
+          { method: "POST", body: formData },
         );
-
         if (!uploadRes.ok) throw new Error("Dosya yükleme başarısız!");
         const uploadData = await uploadRes.json();
-        uploadedFileName = uploadData.fileName; // Backend'in verdiği yeni dosya adını al
+        uploadedFileName = uploadData.fileName;
       }
-
-      // 2. Parçayı teknik resim yoluyla birlikte kaydet
       await fetch("http://localhost:8080/api/parts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -198,8 +313,6 @@ export default function WorkPackageList({
           workPackage: { id: selectedPackage.id },
         }),
       });
-
-      // Başarılı olunca formu ve dosyayı temizle
       setPartNo("");
       setProductName("");
       setQuantity("");
@@ -207,7 +320,6 @@ export default function WorkPackageList({
       setQualityRequirements("");
       setHasCoating(false);
       setSelectedFile(null);
-
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error("Parça eklenirken hata:", error);
@@ -241,19 +353,15 @@ export default function WorkPackageList({
       alert("Lütfen üretime başlamak için bir tezgah seçin!");
       return;
     }
-
-    // YENİ: OPERATÖR SEÇİM KONTROLÜ
     if (!selectedOperatorForProduction) {
       alert("Lütfen bu işlemi yapacak operatörü seçin!");
       return;
     }
-
     const isMachineBusy = safeParts.some(
       (p) =>
         p.machine?.id === Number(selectedMachineForProduction) &&
         p.status === "URETIMDE",
     );
-
     if (isMachineBusy) {
       alert(
         "⚠️ HATA: Seçilen makine şu anda dolu! Lütfen boş bir makine seçin.",
@@ -261,23 +369,20 @@ export default function WorkPackageList({
       return;
     }
 
-    // YENİ: GÖNDERİLEN VERİYE OPERATÖR ID'SİNİ EKLEDİK
     const updatedPart = {
       ...productionModalPart,
       status: "URETIMDE",
       machine: { id: Number(selectedMachineForProduction) },
       operator: { id: Number(selectedOperatorForProduction) },
     };
-
     await fetch(`http://localhost:8080/api/parts/${productionModalPart.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedPart),
     });
-
     setProductionModalPart(null);
     setSelectedMachineForProduction("");
-    setSelectedOperatorForProduction(""); // Sıfırladık
+    setSelectedOperatorForProduction("");
     if (onRefresh) onRefresh();
   };
 
@@ -466,11 +571,41 @@ export default function WorkPackageList({
             >
               ⬅ Geri Dön
             </button>
+            <button
+              onClick={() => handlePrintWorkOrder(selectedPackage)}
+              style={{
+                backgroundColor: "#f59e0b",
+                color: "#fff",
+                border: "none",
+                padding: "8px 16px",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                marginLeft: "15px",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+              }}
+            >
+              📄 İş Emrini PDF Olarak Al
+            </button>
             <h2 style={{ margin: 0, color: "#38bdf8" }}>
               Paket Yönetimi: {selectedPackage.packageNo}
             </h2>
+            {selectedPackage.customer && (
+              <span
+                style={{
+                  backgroundColor: "#0f172a",
+                  color: "#10b981",
+                  padding: "6px 12px",
+                  borderRadius: "12px",
+                  fontSize: "14px",
+                  border: "1px solid #10b981",
+                  marginLeft: "auto",
+                }}
+              >
+                👤 Firma: {selectedPackage.customer.companyName}
+              </span>
+            )}
           </div>
-
           <div
             style={{
               backgroundColor: "#0f172a",
@@ -525,7 +660,6 @@ export default function WorkPackageList({
                 required
                 style={{ ...inputStyle, flex: 1, minWidth: "150px" }}
               />
-
               <div
                 style={{
                   display: "flex",
@@ -572,7 +706,7 @@ export default function WorkPackageList({
                 }}
               >
                 {qualityRequirements
-                  ? "📝 İsterler Girildi (Düzenle)"
+                  ? "📝 İsterler Girildi"
                   : "📝 Kalite İsteri Ekle"}
               </button>
               <div
@@ -723,21 +857,25 @@ export default function WorkPackageList({
                             Üretime Al ⚙️
                           </button>
                         )}
-                        <button
-                          onClick={() => handleDeletePart(p.id)}
-                          style={{
-                            backgroundColor: "#ef4444",
-                            color: "#fff",
-                            border: "none",
-                            padding: "6px 10px",
-                            borderRadius: "4px",
-                            cursor: "pointer",
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          Sil
-                        </button>
+
+                        {/* SADECE ADMİN PARÇA SİLEBİLİR */}
+                        {user?.role === "ADMIN" && (
+                          <button
+                            onClick={() => handleDeletePart(p.id)}
+                            style={{
+                              backgroundColor: "#ef4444",
+                              color: "#fff",
+                              border: "none",
+                              padding: "6px 10px",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "12px",
+                              fontWeight: "bold",
+                            }}
+                          >
+                            Sil
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -812,14 +950,21 @@ export default function WorkPackageList({
                 />
               </div>
               <div style={{ flex: 1, minWidth: "150px" }}>
-                <input
-                  type="text"
-                  placeholder="Müşteri Adı"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => setSelectedCustomerId(e.target.value)}
                   required
-                  style={{ ...inputStyle, width: "100%" }}
-                />
+                  style={{ ...inputStyle, width: "100%", cursor: "pointer" }}
+                >
+                  <option value="" disabled>
+                    Firma/Müşteri Seçin
+                  </option>
+                  {availableCustomers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.companyName}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div style={{ flex: 2, minWidth: "200px" }}>
                 <input
@@ -895,107 +1040,138 @@ export default function WorkPackageList({
               gap: "20px",
             }}
           >
-            {safePackages.map((wp) => {
-              const packagePartsCount = safeParts.filter(
-                (p) => p.workPackage?.id === wp.id,
-              ).length;
-              return (
-                <div
-                  key={wp.id}
-                  style={{
-                    backgroundColor: "#1e293b",
-                    border: "1px solid #334155",
-                    borderRadius: "12px",
-                    padding: "20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "15px",
-                  }}
-                >
-                  <div>
-                    <h3
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                gap: "20px",
+              }}
+            >
+              {safePackages
+                .filter((wp) => {
+                  // 1. İptal edildiyse gizle
+                  if (wp.isCancelled || wp.cancelled) return false;
+
+                  // 2. Parçaların hepsi teslim edildiyse (Tamamlandıysa) otomatik gizle
+                  const wpParts = safeParts.filter(
+                    (p) => p.workPackage?.id === wp.id,
+                  );
+                  const isFullyDelivered =
+                    wpParts.length > 0 &&
+                    wpParts.every(
+                      (p) =>
+                        p.status === "TAMAMLANDI" &&
+                        p.postProcess === "TESLIM_EDILDI",
+                    );
+
+                  return !isFullyDelivered; // Sadece tamamlanMAMIŞ olanları ekranda bırak
+                })
+                .map((wp) => {
+                  const packagePartsCount = safeParts.filter(
+                    (p) => p.workPackage?.id === wp.id,
+                  ).length;
+                  return (
+                    <div
+                      key={wp.id}
                       style={{
-                        margin: "0 0 5px 0",
-                        color: "#38bdf8",
-                        fontSize: "18px",
+                        backgroundColor: "#1e293b",
+                        border: "1px solid #334155",
+                        borderRadius: "12px",
+                        padding: "20px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "15px",
                       }}
                     >
-                      📦 {wp.packageNo}
-                    </h3>
-                    <span
-                      style={{
-                        fontSize: "13px",
-                        color: "#94a3b8",
-                        display: "block",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      İçerik: {packagePartsCount} Parça
-                    </span>
-                    {wp.qualityNotes && (
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          color: "#cbd5e1",
-                          fontStyle: "italic",
-                          display: "block",
-                          marginBottom: "8px",
-                          borderLeft: "2px solid #3b82f6",
-                          paddingLeft: "5px",
-                        }}
-                      >
-                        📝 {wp.qualityNotes}
-                      </span>
-                    )}
-                    {wp.customerName && (
-                      <span
-                        style={{
-                          fontSize: "13px",
-                          color: "#38bdf8",
-                          display: "block",
-                          marginBottom: "5px",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        👤 {wp.customerName}
-                      </span>
-                    )}
-                    {renderDeadlineBadge(wp.deliveryDate)}
-                  </div>
-                  <div style={{ display: "flex", gap: "10px" }}>
-                    <button
-                      onClick={() => setSelectedPackage(wp)}
-                      style={{
-                        flex: 1,
-                        padding: "10px",
-                        backgroundColor: "#3b82f6",
-                        color: "#fff",
-                        border: "none",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      İçine Gir / Yönet ➔
-                    </button>
-                    <button
-                      onClick={() => handleDeletePackage(wp.id)}
-                      style={{
-                        padding: "10px",
-                        backgroundColor: "transparent",
-                        color: "#ef4444",
-                        border: "1px solid #ef4444",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      ✖
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                      <div>
+                        <h3
+                          style={{
+                            margin: "0 0 5px 0",
+                            color: "#38bdf8",
+                            fontSize: "18px",
+                          }}
+                        >
+                          📦 {wp.packageNo}
+                        </h3>
+                        <span
+                          style={{
+                            fontSize: "13px",
+                            color: "#94a3b8",
+                            display: "block",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          İçerik: {packagePartsCount} Parça
+                        </span>
+                        {wp.customer && (
+                          <span
+                            style={{
+                              fontSize: "13px",
+                              color: "#10b981",
+                              display: "block",
+                              marginBottom: "5px",
+                              fontWeight: "bold",
+                            }}
+                          >
+                            👤 {wp.customer.companyName}
+                          </span>
+                        )}
+                        {wp.qualityNotes && (
+                          <span
+                            style={{
+                              fontSize: "12px",
+                              color: "#cbd5e1",
+                              fontStyle: "italic",
+                              display: "block",
+                              marginBottom: "8px",
+                              borderLeft: "2px solid #3b82f6",
+                              paddingLeft: "5px",
+                            }}
+                          >
+                            📝 {wp.qualityNotes}
+                          </span>
+                        )}
+                        {renderDeadlineBadge(wp.deliveryDate)}
+                      </div>
+                      <div style={{ display: "flex", gap: "10px" }}>
+                        <button
+                          onClick={() => setSelectedPackage(wp)}
+                          style={{
+                            flex: 1,
+                            padding: "10px",
+                            backgroundColor: "#3b82f6",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: "bold",
+                          }}
+                        >
+                          İçine Gir / Yönet ➔
+                        </button>
+
+                        {/* SADECE ADMİN İPTAL EDEBİLİR */}
+                        {user?.role === "ADMIN" && (
+                          <button
+                            onClick={() => handleCancelPackage(wp.id)}
+                            style={{
+                              padding: "10px",
+                              backgroundColor: "transparent",
+                              color: "#f59e0b",
+                              border: "1px solid #f59e0b",
+                              borderRadius: "6px",
+                              cursor: "pointer",
+                              fontWeight: "bold",
+                            }}
+                          >
+                            İptal Et 🚫
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         </>
       )}
@@ -1062,7 +1238,6 @@ export default function WorkPackageList({
               </p>
             </div>
 
-            {/* MAKİNE SEÇİMİ */}
             <label
               style={{
                 display: "block",
@@ -1102,7 +1277,6 @@ export default function WorkPackageList({
               })}
             </select>
 
-            {/* YENİ: OPERATÖR SEÇİMİ */}
             <label
               style={{
                 display: "block",
@@ -1180,7 +1354,8 @@ export default function WorkPackageList({
           </div>
         </div>
       )}
-      {/* YENİ: BÜYÜK KALİTE İSTERİ MODALI */}
+
+      {/* BÜYÜK KALİTE İSTERİ MODALI */}
       {showQualityModal && (
         <div
           style={{

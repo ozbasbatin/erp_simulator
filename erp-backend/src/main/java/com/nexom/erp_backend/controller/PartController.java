@@ -48,6 +48,8 @@ public class PartController {
             existingPart.setStatus(updatedPart.getStatus());
             existingPart.setPostProcess(updatedPart.getPostProcess());
             existingPart.setQualityRequirements(updatedPart.getQualityRequirements());
+            existingPart.setWaybillNumber(updatedPart.getWaybillNumber());
+            existingPart.setQualityDocPath(updatedPart.getQualityDocPath());
 
             // İlişkileri koruyarak kaydet
             if (updatedPart.getMachine() != null) {

@@ -6,7 +6,28 @@ export default function KanbanBoard({ parts, onRefresh }) {
 
   const [qualityModalPart, setQualityModalPart] = useState(null);
 
-  const kanbanParts = parts.filter((p) => p.status === "TAMAMLANDI");
+  const [deliveryModalPart, setDeliveryModalPart] = useState(null);
+  const [waybillNumber, setWaybillNumber] = useState("");
+
+  // AKILLI DOMİNO TEMİZLİĞİ
+  // Sadece "TAMAMLANDI" (Üretimden çıkmış) olanları al
+  const kanbanParts = parts.filter((p) => {
+    if (p.status !== "TAMAMLANDI") return false;
+
+    if (p.workPackage) {
+      const allPartsOfPackage = parts.filter(
+        (otherPart) => otherPart.workPackage?.id === p.workPackage.id,
+      );
+
+      const isEntirePackageDelivered =
+        allPartsOfPackage.length > 0 &&
+        allPartsOfPackage.every((op) => op.postProcess === "TESLIM_EDILDI");
+
+      if (isEntirePackageDelivered) return false;
+    }
+
+    return true;
+  });
 
   const columns = [
     { id: "TESVIYE", title: "🪚 Tesviye", color: "#f59e0b" },
@@ -43,13 +64,24 @@ export default function KanbanBoard({ parts, onRefresh }) {
       return;
     }
 
-    // 🛑 2. GÜVENLİK KİLİDİ (YENİ): Kaliteden sürükleyerek çıkarmayı engelle!
+    // 🛑 2. GÜVENLİK KİLİDİ: Kaliteden sürükleyerek çıkarmayı engelle!
     if (
       part.postProcess === "KALITE_KONTROL" &&
       targetProcess === "TESLIMAT_BEKLIYOR"
     ) {
       alert(
         "⚠️ DİKKAT: Kalite onayı sürükleyerek yapılamaz! Lütfen '📝 Kaliteyi İncele' butonuna tıklayarak ölçüm sonuçlarını onaylayın.",
+      );
+      return;
+    }
+
+    // 🛑 3. GÜVENLİK KİLİDİ (YENİ): İrsaliye kesmeden teslimata sürüklemeyi engelle!
+    if (
+      part.postProcess === "TESLIMAT_BEKLIYOR" &&
+      targetProcess === "TESLIM_EDILDI"
+    ) {
+      alert(
+        "⚠️ DİKKAT: İrsaliye kesilmeden teslimat yapılamaz! Lütfen '📄 İrsaliye Kes ve Teslim Et' butonuna tıklayarak işlem yapın.",
       );
       return;
     }
@@ -119,13 +151,13 @@ export default function KanbanBoard({ parts, onRefresh }) {
     }
   };
 
-  // YENİ: Kalite Panelinden Ölçümü Onaylama ve Teslimata Gönderme
+  // Kalite Panelinden Ölçümü Onaylama ve Teslimata Gönderme
   const handleQualityApprove = async () => {
     if (!qualityModalPart) return;
 
     const updatedPart = {
       ...qualityModalPart,
-      postProcess: "TESLIMAT_BEKLIYOR", // Onaylanınca otomatik buraya uçar
+      postProcess: "TESLIMAT_BEKLIYOR",
       machine: qualityModalPart.machine
         ? { id: qualityModalPart.machine.id }
         : null,
@@ -143,11 +175,49 @@ export default function KanbanBoard({ parts, onRefresh }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedPart),
       });
-      setQualityModalPart(null); // Modalı kapat
-      onRefresh(); // Panoyu yenile
+      setQualityModalPart(null);
+      onRefresh();
     } catch (error) {
       console.error("Kalite onayı sırasında hata:", error);
       alert("Onaylama sırasında bir hata oluştu!");
+    }
+  };
+
+  // YENİ: İrsaliye Panelinden Teslimatı Onaylama
+  const handleDeliveryApprove = async () => {
+    if (!deliveryModalPart) return;
+    if (!waybillNumber.trim()) {
+      alert("Lütfen geçerli bir İrsaliye Numarası giriniz!");
+      return;
+    }
+
+    const updatedPart = {
+      ...deliveryModalPart,
+      postProcess: "TESLIM_EDILDI",
+      waybillNumber: waybillNumber,
+      machine: deliveryModalPart.machine
+        ? { id: deliveryModalPart.machine.id }
+        : null,
+      workPackage: deliveryModalPart.workPackage
+        ? { id: deliveryModalPart.workPackage.id }
+        : null,
+      operator: deliveryModalPart.operator
+        ? { id: deliveryModalPart.operator.id }
+        : null,
+    };
+
+    try {
+      await fetch(`http://localhost:8080/api/parts/${deliveryModalPart.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedPart),
+      });
+      setDeliveryModalPart(null);
+      setWaybillNumber(""); // Formu temizle
+      onRefresh();
+    } catch (error) {
+      console.error("Teslimat onayı sırasında hata:", error);
+      alert("Teslimat işlemi sırasında bir hata oluştu!");
     }
   };
 
@@ -333,14 +403,14 @@ export default function KanbanBoard({ parts, onRefresh }) {
                   )}
                 </div>
 
-                {/* YENİ: Kaliteyi İncele Butonu SADECE Kalite kolonundayken çıksın */}
+                {/* Kaliteyi İncele Butonu SADECE Kalite kolonundayken çıksın */}
                 {col.id === "KALITE_KONTROL" && (
                   <button
                     onClick={() => setQualityModalPart(part)}
                     style={{
                       width: "100%",
                       marginTop: "12px",
-                      backgroundColor: "#f59e0b", // Dikkat çekici turuncu/kehribar
+                      backgroundColor: "#f59e0b",
                       color: "#fff",
                       border: "none",
                       padding: "8px",
@@ -354,12 +424,56 @@ export default function KanbanBoard({ parts, onRefresh }) {
                     📝 Kaliteyi İncele ve Onayla
                   </button>
                 )}
+
+                {/* YENİ: İrsaliye Kes Butonu SADECE Teslimat Bekliyor kolonundayken çıksın */}
+                {col.id === "TESLIMAT_BEKLIYOR" && (
+                  <button
+                    onClick={() => {
+                      setDeliveryModalPart(part);
+                      setWaybillNumber(""); // Modal açılırken eski yazılanları temizle
+                    }}
+                    style={{
+                      width: "100%",
+                      marginTop: "12px",
+                      backgroundColor: "#8b5cf6", // Teslimat kolonunun rengiyle uyumlu
+                      color: "#fff",
+                      border: "none",
+                      padding: "8px",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    📄 İrsaliye Kes ve Teslim Et
+                  </button>
+                )}
+                {col.id === "TESLIM_EDILDI" && part.waybillNumber && (
+                  <div
+                    style={{
+                      width: "100%",
+                      marginTop: "12px",
+                      backgroundColor: "#064e3b",
+                      color: "#34d399",
+                      border: "1px solid #10b981",
+                      padding: "8px",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
+                      fontSize: "12px",
+                      textAlign: "center",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    📄 İrsaliye: {part.waybillNumber}
+                  </div>
+                )}
               </div>
             ))}
         </div>
       ))}
 
-      {/* YENİ: KALİTE ONAY PENCERESİ (MODAL) */}
+      {/* KALİTE ONAY PENCERESİ (MODAL) */}
       {qualityModalPart && (
         <div
           style={{
@@ -442,7 +556,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
             <div
               style={{ display: "flex", gap: "10px", flexDirection: "column" }}
             >
-              {/* Teknik Resmi Aç Butonu */}
               {qualityModalPart.drawingPath && (
                 <a
                   href={`http://localhost:8080/api/files/${qualityModalPart.drawingPath}`}
@@ -463,7 +576,25 @@ export default function KanbanBoard({ parts, onRefresh }) {
                 </a>
               )}
 
-              {/* Onay Butonu */}
+              {qualityModalPart.qualityDocPath && (
+                <a
+                  href={`http://localhost:8080/api/files/${qualityModalPart.qualityDocPath}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    backgroundColor: "#3b82f6",
+                    color: "#fff",
+                    padding: "12px",
+                    borderRadius: "6px",
+                    textAlign: "center",
+                    textDecoration: "none",
+                    fontWeight: "bold",
+                    border: "1px solid #2563eb",
+                  }}
+                >
+                  📋 Yüklenen Kalite Raporunu Aç
+                </a>
+              )}
               <button
                 onClick={handleQualityApprove}
                 style={{
@@ -496,6 +627,131 @@ export default function KanbanBoard({ parts, onRefresh }) {
               }}
             >
               İptal Et ve Kapat
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* YENİ: İRSALİYE KESME VE TESLİMAT PENCERESİ (MODAL) */}
+      {deliveryModalPart && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1500,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e293b",
+              padding: "25px",
+              borderRadius: "12px",
+              width: "450px",
+              border: "1px solid #475569",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 15px 0", color: "#f8fafc" }}>
+              📦 İrsaliye ve Teslimat İşlemi
+            </h3>
+
+            <div
+              style={{
+                backgroundColor: "#0f172a",
+                padding: "15px",
+                borderRadius: "8px",
+                color: "#cbd5e1",
+                marginBottom: "20px",
+                border: "1px solid #475569",
+              }}
+            >
+              <p style={{ margin: "0 0 5px 0" }}>
+                <strong>Firma/Müşteri:</strong>{" "}
+                {deliveryModalPart.workPackage?.customerName || "Bilinmiyor"}
+              </p>
+              <p style={{ margin: "0 0 5px 0" }}>
+                <strong>Paket No:</strong>{" "}
+                {deliveryModalPart.workPackage?.packageNo}
+              </p>
+              <p style={{ margin: "0 0 5px 0" }}>
+                <strong>Ürün:</strong> {deliveryModalPart.productName}
+              </p>
+              <p style={{ margin: "0" }}>
+                <strong>Adet:</strong> {deliveryModalPart.producedQuantity} /{" "}
+                {deliveryModalPart.quantity}
+              </p>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label
+                style={{
+                  display: "block",
+                  color: "#94a3b8",
+                  marginBottom: "8px",
+                  fontSize: "13px",
+                }}
+              >
+                Sevk İrsaliye Numarası:
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: IRS-2026-0819"
+                value={waybillNumber}
+                onChange={(e) => setWaybillNumber(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  borderRadius: "6px",
+                  border: "1px solid #475569",
+                  backgroundColor: "#0f172a",
+                  color: "#fff",
+                  boxSizing: "border-box",
+                }}
+                required
+              />
+            </div>
+
+            <div
+              style={{ display: "flex", gap: "10px", flexDirection: "column" }}
+            >
+              <button
+                onClick={handleDeliveryApprove}
+                style={{
+                  backgroundColor: "#10b981",
+                  color: "#fff",
+                  border: "none",
+                  padding: "15px",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
+                }}
+              >
+                ✅ İrsaliyeyi Kes ve Çıkış Yap
+              </button>
+            </div>
+
+            <button
+              onClick={() => setDeliveryModalPart(null)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#94a3b8",
+                width: "100%",
+                marginTop: "15px",
+                cursor: "pointer",
+                fontSize: "14px",
+              }}
+            >
+              İptal Et
             </button>
           </div>
         </div>

@@ -26,7 +26,14 @@ public class WorkPackageController {
     }
 
     @DeleteMapping("/{id}")
-    public void deleteWorkPackage(@PathVariable Long id) {
+    public void cancelWorkPackage(@PathVariable Long id) {
+        WorkPackage wp = workPackageRepository.findById(id).orElseThrow();
+        wp.setIsCancelled(true);
+        workPackageRepository.save(wp);
+    }
+
+    @DeleteMapping("/{id}/hard")
+    public void hardDeleteWorkPackage(@PathVariable Long id) {
         workPackageRepository.deleteById(id);
     }
 }

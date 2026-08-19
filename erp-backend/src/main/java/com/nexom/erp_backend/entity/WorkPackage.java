@@ -5,6 +5,9 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.ArrayList;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "work_packages")
@@ -16,6 +19,10 @@ public class WorkPackage {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "customer_id")
+    private Customer customer;
 
     @Column(name = "package_no", unique = true, nullable = false)
     private String packageNo;
@@ -29,9 +36,14 @@ public class WorkPackage {
     @Column(name = "delivery_date")
     private String deliveryDate;
 
-    @Column(name = "customer_name")
-    private String customerName;
-
     @Column(name = "order_date")
     private String orderDate;
+
+    @Column(name = "is_cancelled")
+    private Boolean isCancelled = false;
+
+    // Paket silindiğinde içindeki parçaların da otomatik silinmesi için (Cascade)
+    @OneToMany(mappedBy = "workPackage", cascade = CascadeType.REMOVE)
+    @JsonIgnore
+    private List<Part> parts = new ArrayList<>();
 }

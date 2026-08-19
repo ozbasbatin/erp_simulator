@@ -80,4 +80,7 @@ public class Part {
 
     @Column(name = "quality_requirements", columnDefinition = "TEXT")
     private String qualityRequirements;
+
+    @Column(name = "waybill_number")
+    private String waybillNumber;
 }

@@ -3,6 +3,7 @@ import MachineList from "./components/MachineList.jsx";
 import WorkPackageList from "./components/WorkPackageList.jsx";
 import KanbanBoard from "./components/KanbanBoard.jsx";
 import EmployeeManager from "./components/EmployeeManager.jsx";
+import CustomerList from "./components/CustomerList.jsx";
 import "./App.css";
 
 function App() {
@@ -331,6 +332,23 @@ function App() {
             </button>
           )}
 
+          <button
+            onClick={() => setActiveTab("CUSTOMERS")}
+            style={{
+              backgroundColor:
+                activeTab === "CUSTOMERS" ? "#3b82f6" : "#1e293b",
+              color: "#fff",
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              transition: "0.3s",
+            }}
+          >
+            👥 Müşteriler
+          </button>
+
           {/* Kalite & Teslimat bölümünü HERKES (Admin, Üretim, Kalite) görebilir */}
           <button
             style={tabStyle("kanban")}
@@ -353,6 +371,13 @@ function App() {
           </div>
         )}
 
+        {/* Yeni Çalışan Yönetimi Sekmesi */}
+        {user.role === "ADMIN" && activeTab === "employees" && (
+          <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+            <EmployeeManager />
+          </div>
+        )}
+
         {/* Admin veya Üretim yetkisi varsa İş Paketlerini çiz */}
         {(user.role === "ADMIN" || user.role === "PRODUCTION") &&
           activeTab === "workPackages" && (
@@ -362,16 +387,10 @@ function App() {
                 parts={parts}
                 machines={machines}
                 onRefresh={fetchData}
+                user={user}
               />
             </div>
           )}
-
-        {/* Yeni Çalışan Yönetimi Sekmesi */}
-        {user.role === "ADMIN" && activeTab === "employees" && (
-          <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
-            <EmployeeManager />
-          </div>
-        )}
 
         {/* Kanban Board'ı herkes görebilir */}
         {activeTab === "kanban" && (
@@ -381,6 +400,16 @@ function App() {
             </h2>
             <KanbanBoard parts={parts} onRefresh={fetchData} />
           </div>
+        )}
+
+        {/* Müşteriler Sekmesi */}
+        {activeTab === "CUSTOMERS" && (
+          <CustomerList
+            workPackages={workPackages}
+            parts={parts}
+            onRefresh={fetchData}
+            user={user}
+          />
         )}
       </main>
     </div>
