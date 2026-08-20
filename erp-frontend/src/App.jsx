@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Swal from "sweetalert2";
 import MachineList from "./components/MachineList.jsx";
 import WorkPackageList from "./components/WorkPackageList.jsx";
 import KanbanBoard from "./components/KanbanBoard.jsx";
@@ -8,12 +9,26 @@ import "./App.css";
 
 function App() {
   // --- GİRİŞ (LOGIN) STATE'LERİ ---
-  const [user, setUser] = useState(null); // Giriş yapan kullanıcı bilgisi { username, role }
+  const [user, setUser] = useState(() => {
+    const savedUser = sessionStorage.getItem("erp_user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
   const [usernameInput, setUsernameInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [loginError, setLoginError] = useState("");
 
-  const [activeTab, setActiveTab] = useState("production");
+  // Sayfa yenilendiğinde (F5) yetkiye göre doğru sekmeyi aç
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedUser = sessionStorage.getItem("erp_user");
+    if (savedUser) {
+      const parsedUser = JSON.parse(savedUser);
+      if (parsedUser.role === "QUALITY") return "kanban";
+      if (parsedUser.role === "PRODUCTION") return "workPackages";
+    }
+    return "production";
+  });
+
   const [machines, setMachines] = useState([]);
   const [parts, setParts] = useState([]);
   const [workPackages, setWorkPackages] = useState([]);
@@ -36,7 +51,7 @@ function App() {
     if (user) {
       fetchData();
     }
-  }, [user]);
+  }, [user, activeTab]);
 
   // Giriş Yapma Fonksiyonu
   const handleLogin = async (e) => {
@@ -60,7 +75,22 @@ function App() {
       }
 
       // Başarılı giriş! Kullanıcıyı kaydet
-      setUser({ username: data.username, role: data.role });
+      const loggedInUser = { username: data.username, role: data.role };
+      setUser(loggedInUser);
+      sessionStorage.setItem("erp_user", JSON.stringify(loggedInUser));
+
+      // YENİ: Sağ üst köşeden çıkan zarif "Toast" hoş geldin mesajı
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "success",
+        title: `Hoş geldin, ${data.username}!`,
+        showConfirmButton: false,
+        timer: 2500,
+        background: "#1e293b",
+        color: "#fff",
+        iconColor: "#10b981",
+      });
 
       // ROLÜNE GÖRE İLK AÇILACAK SEKMEYİ BELİRLE
       if (data.role === "QUALITY") {
@@ -76,10 +106,27 @@ function App() {
   };
 
   // Çıkış Yapma Fonksiyonu
-  const handleLogout = () => {
-    setUser(null);
-    setUsernameInput("");
-    setPasswordInput("");
+  const handleLogout = async () => {
+    // YENİ: Aniden çıkmak yerine şık bir onay sorusu
+    const result = await Swal.fire({
+      title: "Çıkış Yap?",
+      text: "Hesabınızdan çıkış yapmak istediğinize emin misiniz?",
+      icon: "question",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Çıkış Yap",
+      cancelButtonText: "İptal",
+    });
+
+    if (result.isConfirmed) {
+      setUser(null);
+      sessionStorage.removeItem("erp_user");
+      setUsernameInput("");
+      setPasswordInput("");
+    }
   };
 
   const tabStyle = (tabName) => ({
@@ -272,6 +319,28 @@ function App() {
           </h1>
 
           <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
+            <button
+              onClick={fetchData}
+              style={{
+                backgroundColor: "#3b82f6",
+                color: "#fff",
+                border: "none",
+                padding: "8px 14px",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "13px",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                transition: "transform 0.1s",
+              }}
+              onMouseDown={(e) =>
+                (e.currentTarget.style.transform = "scale(0.95)")
+              }
+              onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            >
+              🔄 Verileri Yenile
+            </button>
+
             <span
               style={{
                 backgroundColor: "#1e293b",
@@ -284,6 +353,7 @@ function App() {
               👤 {user.username} (
               <span style={{ color: "#38bdf8" }}>{user.role}</span>)
             </span>
+
             <button
               onClick={handleLogout}
               style={{
@@ -359,10 +429,10 @@ function App() {
         </nav>
       </header>
 
-      <main>
+      <main style={{ width: "100%" }}>
         {/* Sadece Admin yetkisi varsa ve sekme seçiliyse Makine Listesini çiz */}
         {user.role === "ADMIN" && activeTab === "production" && (
-          <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+          <div style={{ width: "100%" }}>
             <MachineList
               machines={machines}
               parts={parts}
@@ -373,7 +443,7 @@ function App() {
 
         {/* Yeni Çalışan Yönetimi Sekmesi */}
         {user.role === "ADMIN" && activeTab === "employees" && (
-          <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+          <div style={{ width: "100%" }}>
             <EmployeeManager />
           </div>
         )}
@@ -381,7 +451,7 @@ function App() {
         {/* Admin veya Üretim yetkisi varsa İş Paketlerini çiz */}
         {(user.role === "ADMIN" || user.role === "PRODUCTION") &&
           activeTab === "workPackages" && (
-            <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+            <div style={{ width: "100%" }}>
               <WorkPackageList
                 workPackages={workPackages}
                 parts={parts}
@@ -394,7 +464,7 @@ function App() {
 
         {/* Kanban Board'ı herkes görebilir */}
         {activeTab === "kanban" && (
-          <div>
+          <div style={{ width: "100%" }}>
             <h2 style={{ color: "#f8fafc", marginBottom: "20px" }}>
               Üretim Sonrası Akış Panosu
             </h2>
@@ -404,12 +474,14 @@ function App() {
 
         {/* Müşteriler Sekmesi */}
         {activeTab === "CUSTOMERS" && (
-          <CustomerList
-            workPackages={workPackages}
-            parts={parts}
-            onRefresh={fetchData}
-            user={user}
-          />
+          <div style={{ width: "100%" }}>
+            <CustomerList
+              workPackages={workPackages}
+              parts={parts}
+              onRefresh={fetchData}
+              user={user}
+            />
+          </div>
         )}
       </main>
     </div>

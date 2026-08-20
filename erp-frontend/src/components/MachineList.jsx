@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Swal from "sweetalert2";
 
 export default function MachineList({ machines, parts = [], onRefresh }) {
   const [machineName, setMachineName] = useState("");
@@ -38,21 +39,61 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
     setMachineName("");
     setMaintenanceDate("");
     setShowForm(false);
+
+    Swal.fire({
+      icon: "success",
+      title: "Makine Eklendi!",
+      text: "Yeni makine sisteme başarıyla kaydedildi.",
+      background: "#1e293b",
+      color: "#fff",
+      showConfirmButton: false,
+      timer: 1500,
+    });
+
     onRefresh();
   };
 
   const handleDeleteMachine = async (id) => {
-    if (window.confirm("Bu makineyi silmek istediğinize emin misiniz?")) {
+    const result = await Swal.fire({
+      title: "Makineyi Sil?",
+      text: "Bu makineyi kalıcı olarak silmek istediğinize emin misiniz?",
+      icon: "warning",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Sil!",
+      cancelButtonText: "İptal",
+    });
+
+    if (result.isConfirmed) {
       const res = await fetch(`http://localhost:8080/api/machines/${id}`, {
         method: "DELETE",
       });
 
       if (!res.ok) {
-        alert(
-          "⚠️ UYARI: Bu makinede işlem gören veya makineye atanmış parçalar var! Önce o parçaları başka makineye aktarın veya silin.",
-        );
+        Swal.fire({
+          icon: "error",
+          title: "Silinemedi!",
+          text: "Bu makinede işlem gören veya makineye atanmış parçalar var! Önce o parçaları başka makineye aktarın veya silin.",
+          background: "#1e293b",
+          color: "#fff",
+          confirmButtonColor: "#3b82f6",
+        });
         return;
       }
+
+      Swal.fire({
+        icon: "success",
+        title: "Silindi!",
+        text: "Makine başarıyla silindi.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 1500,
+      });
+
       onRefresh();
     }
   };
@@ -64,12 +105,21 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
 
   const handleCompleteProduction = async () => {
     if (!activePartInModal) return;
-    if (
-      !window.confirm(
-        "Bu parçanın üretimini tamamlamak istediğinize emin misiniz?",
-      )
-    )
-      return;
+
+    const result = await Swal.fire({
+      title: "Üretimi Tamamla?",
+      text: "Bu parçanın üretimini tamamlamak istediğinize emin misiniz?",
+      icon: "question",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#10b981",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Tamamla!",
+      cancelButtonText: "İptal",
+    });
+
+    if (!result.isConfirmed) return;
 
     setIsUploading(true);
     try {
@@ -100,10 +150,28 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
       if (!updateRes.ok) throw new Error("Kayıt Hatası");
 
       setSelectedMachine(null);
+
+      Swal.fire({
+        icon: "success",
+        title: "Tebrikler!",
+        text: "Üretim başarıyla tamamlandı ve parça sonrakı aşamaya aktarıldı.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 1500,
+      });
+
       onRefresh();
     } catch (error) {
       console.error(error);
-      alert("Üretim tamamlanırken hata oluştu!");
+      Swal.fire({
+        icon: "error",
+        title: "Hata!",
+        text: "Üretim tamamlanırken sistemde bir hata oluştu!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     } finally {
       setIsUploading(false);
     }
@@ -312,7 +380,7 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
 
               <div
                 style={{
-                  minHeight: "100px", // Firma da geldiği için biraz daha alan açtık
+                  minHeight: "100px",
                   color: "#cbd5e1",
                   fontSize: "14px",
                   lineHeight: "1.6",
@@ -330,8 +398,11 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                       </div>
                     )}
                     <div>
-                      <strong>İş Paketi:</strong>{" "}
-                      {activePart.workPackage?.packageNo}
+                      <strong>İşlem No:</strong>{" "}
+                      {activePart.workPackage?.orderNo ===
+                      activePart.workPackage?.packageNo
+                        ? activePart.workPackage?.packageNo
+                        : `${activePart.workPackage?.orderNo} (Paket: ${activePart.workPackage?.packageNo})`}
                     </div>
                     <div>
                       <strong>Parça No:</strong> {activePart.partNo}
@@ -496,8 +567,11 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                     </p>
                   )}
                   <p style={{ margin: "0 0 5px 0" }}>
-                    <strong>İş Paketi:</strong>{" "}
-                    {activePartInModal.workPackage?.packageNo}
+                    <strong>İşlem No:</strong>{" "}
+                    {activePartInModal.workPackage?.orderNo ===
+                    activePartInModal.workPackage?.packageNo
+                      ? activePartInModal.workPackage?.packageNo
+                      : `${activePartInModal.workPackage?.orderNo} (Paket: ${activePartInModal.workPackage?.packageNo})`}
                   </p>
                   <p style={{ margin: "0 0 5px 0" }}>
                     <strong>Parça No:</strong> {activePartInModal.partNo}

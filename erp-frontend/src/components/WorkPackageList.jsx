@@ -1,17 +1,19 @@
 import { useState, useEffect } from "react";
+import Swal from "sweetalert2";
 
 export default function WorkPackageList({
   workPackages = [],
   parts = [],
   machines = [],
   onRefresh,
-  user, // APP.JSX'TEN GELECEK
+  user,
 }) {
   const safePackages = Array.isArray(workPackages) ? workPackages : [];
   const safeParts = Array.isArray(parts) ? parts : [];
   const safeMachines = Array.isArray(machines) ? machines : [];
 
   const [packageNo, setPackageNo] = useState("");
+  const [orderNo, setOrderNo] = useState("");
   const [qualityNotes, setQualityNotes] = useState("");
   const [showPackageForm, setShowPackageForm] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(null);
@@ -61,16 +63,26 @@ export default function WorkPackageList({
   const handleAddPackage = async (e) => {
     e.preventDefault();
     if (!selectedCustomerId) {
-      alert("Lütfen bir müşteri seçiniz!");
+      Swal.fire({
+        icon: "warning",
+        title: "Eksik Bilgi!",
+        text: "Lütfen bir müşteri seçiniz!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
     try {
+      const finalOrderNo = orderNo.trim() === "" ? packageNo : orderNo;
+
       const res = await fetch("http://localhost:8080/api/work-packages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           packageNo,
+          orderNo: finalOrderNo,
           qualityNotes,
           deliveryDate,
           orderDate,
@@ -79,20 +91,37 @@ export default function WorkPackageList({
         }),
       });
 
-      // EĞER BACKEND HATA VERİRSE (Örn: Aynı numara varsa) YAKALA
       if (!res.ok) {
-        alert(
-          "⚠️ Hata: Bu İş Paketi Numarası (Package No) zaten kullanımda! Lütfen farklı bir numara giriniz.",
-        );
+        Swal.fire({
+          icon: "error",
+          title: "Numara Çakışması!",
+          text: "Bu İş Paketi Numarası (Package No) zaten kullanımda! Lütfen farklı bir numara giriniz.",
+          background: "#1e293b",
+          color: "#fff",
+          confirmButtonColor: "#3b82f6",
+        });
         return;
       }
 
       setPackageNo("");
+      setOrderNo("");
       setQualityNotes("");
       setDeliveryDate("");
       setOrderDate("");
       setSelectedCustomerId("");
       setShowPackageForm(false);
+
+      Swal.fire({
+        icon: "success",
+        title: "Başarılı!",
+        text: "İş paketi başarıyla oluşturuldu.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#10b981",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error("Paket eklenirken hata:", error);
@@ -100,23 +129,49 @@ export default function WorkPackageList({
   };
 
   const handleCancelPackage = async (id) => {
-    if (
-      window.confirm(
-        "Bu iş paketini İPTAL ETMEK istediğinize emin misiniz? (Geçmişte görünmeye devam eder)",
-      )
-    ) {
+    const result = await Swal.fire({
+      title: "Emin misiniz?",
+      text: "Bu iş paketini İPTAL ETMEK istediğinize emin misiniz? (Geçmişte görünmeye devam eder)",
+      icon: "warning",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, İptal Et!",
+      cancelButtonText: "Vazgeç",
+    });
+
+    if (result.isConfirmed) {
       const res = await fetch(`http://localhost:8080/api/work-packages/${id}`, {
         method: "DELETE",
       });
+
       if (!res.ok) {
-        alert(
-          "⚠️ UYARI: Bu iş paketine kayıtlı parçalar var! Paketi iptal edebilmek için önce içindeki parçaları silmelisiniz.",
-        );
+        Swal.fire({
+          icon: "error",
+          title: "İptal Edilemedi!",
+          text: "Bu iş paketine kayıtlı parçalar var! Paketi iptal edebilmek için önce içindeki parçaları silmelisiniz.",
+          background: "#1e293b",
+          color: "#fff",
+          confirmButtonColor: "#3b82f6",
+        });
         return;
       }
+
       if (selectedPackage && selectedPackage.id === id)
         setSelectedPackage(null);
       if (onRefresh) onRefresh();
+
+      Swal.fire({
+        icon: "success",
+        title: "İptal Edildi!",
+        text: "İş paketi iptal edildi.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 1500,
+      });
     }
   };
 
@@ -172,12 +227,9 @@ export default function WorkPackageList({
 
   const handlePrintWorkOrder = (pkg) => {
     const pkgParts = safeParts.filter((p) => p.workPackage?.id === pkg.id);
-
-    // 1. Tarayıcının ana başlığını geçici olarak dosya adı yapıyoruz
     const originalTitle = document.title;
     document.title = `Is_Emri_${pkg.packageNo}`;
 
-    // 2. Gizli iframe oluşturma
     const iframe = document.createElement("iframe");
     iframe.style.display = "none";
     document.body.appendChild(iframe);
@@ -192,24 +244,23 @@ export default function WorkPackageList({
         h1 { margin: 0; color: #1e293b; font-size: 24px; }
         .info-box { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
         .info-box p { margin: 5px 0; font-size: 14px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-        th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+        th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; vertical-align: top; }
         th { background-color: #f1f5f9; color: #1e293b; }
         .footer { margin-top: 40px; display: flex; justify-content: space-between; }
         .sign-box { text-align: center; }
+        .quality-notes { white-space: pre-wrap; color: #b91c1c; font-weight: 500; font-size: 12px; }
       </style>
     `);
     doc.write("</head><body>");
 
-    // Başlık
     doc.write(`
       <div class="header">
         <h1>NEXOM ERP - ÜRETİM İŞ EMRİ</h1>
-        <h2>Paket No: ${pkg.packageNo}</h2>
+        <h2>${pkg.orderNo === pkg.packageNo ? "Sipariş / Paket No: " + pkg.packageNo : "Sipariş No: " + pkg.orderNo + " (Paket: " + pkg.packageNo + ")"}</h2>
       </div>
     `);
 
-    // Bilgiler
     doc.write(`
       <div class="info-box">
         <p><strong>Firma / Müşteri:</strong> ${pkg.customer?.companyName || "Bilinmiyor"}</p>
@@ -218,16 +269,16 @@ export default function WorkPackageList({
       </div>
     `);
 
-    // Tablo
     doc.write(`
       <table>
         <thead>
           <tr>
             <th>Parça No</th>
             <th>Ürün Adı</th>
-            <th>Üretim Adedi</th>
+            <th>Adet</th>
             <th>Hammadde</th>
             <th>Boya/Kaplama</th>
+            <th>Kalite İsterleri & Notlar</th>
           </tr>
         </thead>
         <tbody>
@@ -235,7 +286,7 @@ export default function WorkPackageList({
 
     if (pkgParts.length === 0) {
       doc.write(
-        '<tr><td colspan="5" style="text-align:center;">Bu iş emrine henüz parça eklenmemiş.</td></tr>',
+        '<tr><td colspan="6" style="text-align:center;">Bu iş emrine henüz parça eklenmemiş.</td></tr>',
       );
     } else {
       pkgParts.forEach((p) => {
@@ -243,9 +294,10 @@ export default function WorkPackageList({
           <tr>
             <td><strong>${p.partNo}</strong></td>
             <td>${p.productName}</td>
-            <td>${p.quantity} Adet</td>
+            <td>${p.quantity}</td>
             <td>${p.rawMaterial}</td>
             <td>${p.hasCoating ? "Yapılacak" : "Yok"}</td>
+            <td class="quality-notes">${p.qualityRequirements || "Özel bir ister girilmemiş."}</td>
           </tr>
         `);
       });
@@ -253,7 +305,6 @@ export default function WorkPackageList({
 
     doc.write("</tbody></table>");
 
-    // İmza
     doc.write(`
       <div class="footer">
         <div class="sign-box"><p><strong>Planlama Onayı</strong></p><p>___________________</p></div>
@@ -264,12 +315,9 @@ export default function WorkPackageList({
     doc.write("</body></html>");
     doc.close();
 
-    // Yazdırma penceresi
     setTimeout(() => {
       iframe.contentWindow.focus();
       iframe.contentWindow.print();
-
-      // Temizlik ve başlığı eski haline getirme
       document.body.removeChild(iframe);
       document.title = originalTitle;
     }, 300);
@@ -278,7 +326,14 @@ export default function WorkPackageList({
   const handleAddPartInsidePackage = async (e) => {
     e.preventDefault();
     if (quantity < 1) {
-      alert("Hata: Üretim adedi 1'den küçük olamaz!");
+      Swal.fire({
+        icon: "warning",
+        title: "Geçersiz Miktar!",
+        text: "Üretim adedi 1'den küçük olamaz!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
     setIsUploadingPart(true);
@@ -323,18 +378,48 @@ export default function WorkPackageList({
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error("Parça eklenirken hata:", error);
-      alert("Kayıt sırasında bir hata oluştu!");
+      Swal.fire({
+        icon: "error",
+        title: "Hata Oluştu!",
+        text: "Kayıt sırasında bir hata oluştu!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     } finally {
       setIsUploadingPart(false);
     }
   };
 
   const handleDeletePart = async (id) => {
-    if (window.confirm("Bu parçayı silmek istediğinize emin misiniz?")) {
+    const result = await Swal.fire({
+      title: "Parçayı Sil?",
+      text: "Bu parçayı kalıcı olarak silmek istediğinize emin misiniz?",
+      icon: "warning",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Sil!",
+      cancelButtonText: "İptal",
+    });
+
+    if (result.isConfirmed) {
       await fetch(`http://localhost:8080/api/parts/${id}`, {
         method: "DELETE",
       });
       if (onRefresh) onRefresh();
+
+      Swal.fire({
+        icon: "success",
+        title: "Silindi!",
+        text: "Parça başarıyla silindi.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 1500,
+      });
     }
   };
 
@@ -350,11 +435,25 @@ export default function WorkPackageList({
 
   const handleConfirmProduction = async () => {
     if (!selectedMachineForProduction) {
-      alert("Lütfen üretime başlamak için bir tezgah seçin!");
+      Swal.fire({
+        icon: "warning",
+        title: "Eksik Seçim!",
+        text: "Lütfen üretime başlamak için bir tezgah seçin!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
     if (!selectedOperatorForProduction) {
-      alert("Lütfen bu işlemi yapacak operatörü seçin!");
+      Swal.fire({
+        icon: "warning",
+        title: "Eksik Seçim!",
+        text: "Lütfen bu işlemi yapacak operatörü seçin!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
     const isMachineBusy = safeParts.some(
@@ -363,9 +462,14 @@ export default function WorkPackageList({
         p.status === "URETIMDE",
     );
     if (isMachineBusy) {
-      alert(
-        "⚠️ HATA: Seçilen makine şu anda dolu! Lütfen boş bir makine seçin.",
-      );
+      Swal.fire({
+        icon: "error",
+        title: "Tezgah Dolu!",
+        text: "Seçilen makine şu anda dolu! Lütfen boş bir makine seçin.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
@@ -384,6 +488,16 @@ export default function WorkPackageList({
     setSelectedMachineForProduction("");
     setSelectedOperatorForProduction("");
     if (onRefresh) onRefresh();
+
+    Swal.fire({
+      icon: "success",
+      title: "Üretim Başladı!",
+      text: "Parça tezgaha başarıyla gönderildi.",
+      background: "#1e293b",
+      color: "#fff",
+      showConfirmButton: false,
+      timer: 1500,
+    });
   };
 
   const getProcessBadge = (part) => {
@@ -950,6 +1064,16 @@ export default function WorkPackageList({
                 />
               </div>
               <div style={{ flex: 1, minWidth: "150px" }}>
+                <input
+                  type="text"
+                  placeholder="Sipariş No (İsteğe Bağlı)"
+                  value={orderNo}
+                  onChange={(e) => setOrderNo(e.target.value)}
+                  title="Boş bırakılırsa Paket No ile aynı kabul edilir"
+                  style={{ ...inputStyle, width: "100%" }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: "150px" }}>
                 <select
                   value={selectedCustomerId}
                   onChange={(e) => setSelectedCustomerId(e.target.value)}
@@ -1091,7 +1215,9 @@ export default function WorkPackageList({
                             fontSize: "18px",
                           }}
                         >
-                          📦 {wp.packageNo}
+                          {wp.orderNo === wp.packageNo
+                            ? `📦 Sipariş / Paket: ${wp.packageNo}`
+                            : `📦 Sipariş: ${wp.orderNo} (Paket: ${wp.packageNo})`}
                         </h3>
                         <span
                           style={{

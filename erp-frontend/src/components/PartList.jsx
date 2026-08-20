@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Swal from "sweetalert2";
 
 export default function PartList({ parts, machines, workPackages, onRefresh }) {
   const [partNo, setPartNo] = useState("");
@@ -9,26 +10,50 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
 
   const handleAddPart = async (e) => {
     e.preventDefault();
-    await fetch("http://localhost:8080/api/parts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        partNo,
-        productName,
-        quantity: Number(quantity),
-        producedQuantity: 0,
-        status: "BEKLIYOR",
-        postProcess: "TESVIYE",
-        machine: { id: Number(machineId) },
-        workPackage: { id: Number(selectedWpId) },
-      }),
-    });
-    setPartNo("");
-    setProductName("");
-    setQuantity("");
-    setMachineId("");
-    setSelectedWpId("");
-    onRefresh();
+    try {
+      await fetch("http://localhost:8080/api/parts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partNo,
+          productName,
+          quantity: Number(quantity),
+          producedQuantity: 0,
+          status: "BEKLIYOR",
+          postProcess: "TESVIYE",
+          machine: { id: Number(machineId) },
+          workPackage: { id: Number(selectedWpId) },
+        }),
+      });
+      setPartNo("");
+      setProductName("");
+      setQuantity("");
+      setMachineId("");
+      setSelectedWpId("");
+      onRefresh();
+
+      // YENİ: Başarı Bildirimi (Toast)
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "success",
+        title: "Parça başarıyla eklendi!",
+        showConfirmButton: false,
+        timer: 2000,
+        background: "#1e293b",
+        color: "#fff",
+      });
+    } catch (error) {
+      console.error("Parça eklenirken hata:", error);
+      Swal.fire({
+        icon: "error",
+        title: "Hata!",
+        text: "Parça eklenirken bir sorun oluştu.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
+    }
   };
 
   const handleUpdateStatus = async (part, newStatus) => {
@@ -47,17 +72,64 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
         body: JSON.stringify(updatedPart),
       });
       onRefresh();
+
+      // YENİ: Ufak onay bildirimi
+      Swal.fire({
+        toast: true,
+        position: "bottom-end",
+        icon: "success",
+        title: "Durum güncellendi!",
+        showConfirmButton: false,
+        timer: 1500,
+        background: "#1e293b",
+        color: "#fff",
+      });
     } catch (error) {
       console.error("Durum güncellenirken hata:", error);
+      Swal.fire({
+        icon: "error",
+        title: "Hata!",
+        text: "Durum güncellenirken bir sorun oluştu.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     }
   };
 
   const handleDeletePart = async (id) => {
-    if (window.confirm("Bu parçayı silmek istediğinize emin misiniz?")) {
-      await fetch(`http://localhost:8080/api/parts/${id}`, {
-        method: "DELETE",
-      });
-      onRefresh();
+    // YENİ: Şık Parça Silme Onayı
+    const result = await Swal.fire({
+      title: "Parçayı Sil?",
+      text: "Bu parçayı silmek istediğinize emin misiniz?",
+      icon: "warning",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Sil!",
+      cancelButtonText: "Vazgeç",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await fetch(`http://localhost:8080/api/parts/${id}`, {
+          method: "DELETE",
+        });
+        onRefresh();
+        Swal.fire({
+          icon: "success",
+          title: "Silindi!",
+          text: "Parça başarıyla silindi.",
+          background: "#1e293b",
+          color: "#fff",
+          showConfirmButton: false,
+          timer: 1500,
+        });
+      } catch (error) {
+        console.error("Silme hatası:", error);
+      }
     }
   };
 
@@ -140,7 +212,10 @@ export default function PartList({ parts, machines, workPackages, onRefresh }) {
           </option>
           {workPackages.map((wp) => (
             <option key={wp.id} value={wp.id}>
-              {wp.packageNo}
+              {/* YENİ: Akıllı Gösterim */}
+              {wp.orderNo === wp.packageNo
+                ? `Paket: ${wp.packageNo}`
+                : `Sipariş: ${wp.orderNo} (Paket: ${wp.packageNo})`}
             </option>
           ))}
         </select>

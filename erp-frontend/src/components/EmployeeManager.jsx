@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Swal from "sweetalert2"; // YENİ: SweetAlert eklendi!
 
 export default function EmployeeManager() {
   const [staffList, setStaffList] = useState([]);
@@ -22,9 +23,17 @@ export default function EmployeeManager() {
   const handleAddStaff = async (e) => {
     e.preventDefault();
     if (!newUsername) return;
-    // Eğer rol operatör değilse ve şifre boşsa uyarı ver
+
+    // Eğer rol operatör değilse ve şifre boşsa şık bir uyarı ver
     if (selectedRole !== "OPERATOR" && !newPassword) {
-      alert("Üretim ve Kalite personeli için şifre zorunludur!");
+      Swal.fire({
+        icon: "warning",
+        title: "Eksik Bilgi!",
+        text: "Üretim ve Kalite personeli için şifre zorunludur!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
@@ -43,21 +52,67 @@ export default function EmployeeManager() {
         setNewUsername("");
         setNewPassword("");
         fetchStaff();
+
+        // Çalışan başarıyla eklendiğinde sağ üstten zarif bildirim
+        Swal.fire({
+          toast: true,
+          position: "top-end",
+          icon: "success",
+          title: "Çalışan başarıyla eklendi!",
+          showConfirmButton: false,
+          timer: 2000,
+          background: "#1e293b",
+          color: "#fff",
+        });
       }
     } catch (error) {
       console.error("Çalışan eklenirken hata:", error);
+      Swal.fire({
+        icon: "error",
+        title: "Kayıt Hatası!",
+        text: "Çalışan sisteme eklenirken bir sorun oluştu.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Bu kişiyi silmek istediğinize emin misiniz?")) return;
-    try {
-      const res = await fetch(`http://localhost:8080/api/users/${id}`, {
-        method: "DELETE",
-      });
-      if (res.ok) fetchStaff();
-    } catch (error) {
-      console.error("Silinirken hata:", error);
+    // YENİ: Şık Çalışan Silme Onayı
+    const result = await Swal.fire({
+      title: "Çalışanı Sil?",
+      text: "Bu kişiyi sistemden kalıcı olarak silmek istediğinize emin misiniz?",
+      icon: "warning",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Sil!",
+      cancelButtonText: "Vazgeç",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const res = await fetch(`http://localhost:8080/api/users/${id}`, {
+          method: "DELETE",
+        });
+        if (res.ok) {
+          fetchStaff();
+          Swal.fire({
+            icon: "success",
+            title: "Silindi!",
+            text: "Çalışan sistemden başarıyla silindi.",
+            background: "#1e293b",
+            color: "#fff",
+            showConfirmButton: false,
+            timer: 1500,
+          });
+        }
+      } catch (error) {
+        console.error("Silinirken hata:", error);
+      }
     }
   };
 

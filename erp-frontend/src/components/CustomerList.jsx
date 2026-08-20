@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Swal from "sweetalert2"; // YENİ: SweetAlert eklendi!
 
 export default function CustomerList({
   workPackages = [],
@@ -45,8 +46,27 @@ export default function CustomerList({
       setEmail("");
       setAddress("");
       fetchCustomers();
+
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "success",
+        title: "Müşteri başarıyla eklendi!",
+        showConfirmButton: false,
+        timer: 2000,
+        background: "#1e293b",
+        color: "#fff",
+      });
     } catch (error) {
       console.error("Müşteri eklenirken hata:", error);
+      Swal.fire({
+        icon: "error",
+        title: "Kayıt Hatası!",
+        text: "Müşteri sisteme eklenirken bir sorun oluştu.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     }
   };
 
@@ -54,34 +74,83 @@ export default function CustomerList({
     const hasOrders = workPackages.some(
       (wp) => wp.customer && wp.customer.id === id,
     );
+
+    // GÜVENLİK KİLİDİ: Aktif siparişi olan müşteriyi sildirmeme
     if (hasOrders) {
-      alert(
-        "⚠️ DİKKAT: Bu müşteriye ait aktif veya geçmiş siparişler (İş Paketleri) var! Önce onları silmeli veya devretmelisiniz.",
-      );
+      Swal.fire({
+        icon: "error",
+        title: "İşlem Reddedildi!",
+        text: "Bu müşteriye ait aktif veya geçmiş siparişler (İş Paketleri) var! Önce onları silmeli veya devretmelisiniz.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
-    if (
-      window.confirm("Bu müşteriyi sistemden silmek istediğinize emin misiniz?")
-    ) {
+    // YENİ: Şık Müşteri Silme Onayı
+    const result = await Swal.fire({
+      title: "Müşteriyi Sil?",
+      text: "Bu müşteriyi sistemden tamamen silmek istediğinize emin misiniz?",
+      icon: "warning",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Sil!",
+      cancelButtonText: "Vazgeç",
+    });
+
+    if (result.isConfirmed) {
       await fetch(`http://localhost:8080/api/customers/${id}`, {
         method: "DELETE",
       });
       fetchCustomers();
+
+      Swal.fire({
+        icon: "success",
+        title: "Silindi!",
+        text: "Müşteri sistemden başarıyla temizlendi.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 1500,
+      });
     }
   };
 
   const handleHardDeleteOrder = async (orderId) => {
-    if (
-      window.confirm(
-        "🔥 DİKKAT: Bu siparişi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz, Kanban panosundaki parçalar da uçar!",
-      )
-    ) {
+    // YENİ: Şık Kalıcı Silme Onayı
+    const result = await Swal.fire({
+      title: "Kalıcı Olarak Sil?",
+      text: "🔥 DİKKAT: Bu siparişi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz, Kanban panosundaki parçalar da uçar!",
+      icon: "error",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Kalıcı Olarak Temizle!",
+      cancelButtonText: "İptal",
+    });
+
+    if (result.isConfirmed) {
       try {
         await fetch(`http://localhost:8080/api/work-packages/${orderId}/hard`, {
           method: "DELETE",
         });
         if (onRefresh) onRefresh();
+
+        Swal.fire({
+          icon: "success",
+          title: "Temizlendi!",
+          text: "Sipariş ve tüm içeriği sistemden kalıcı olarak silindi.",
+          background: "#1e293b",
+          color: "#fff",
+          showConfirmButton: false,
+          timer: 1500,
+        });
       } catch (error) {
         console.error("Kalıcı silme hatası:", error);
       }
@@ -284,7 +353,7 @@ export default function CustomerList({
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
-            zIndex: 1500,
+            zIndex: 1000,
           }}
         >
           <div

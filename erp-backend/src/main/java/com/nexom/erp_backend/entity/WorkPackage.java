@@ -39,6 +39,9 @@ public class WorkPackage {
     @Column(name = "order_date")
     private String orderDate;
 
+    @Column(name = "order_no")
+    private String orderNo;
+
     @Column(name = "is_cancelled")
     private Boolean isCancelled = false;
 

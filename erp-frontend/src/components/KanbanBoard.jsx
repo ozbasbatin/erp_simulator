@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import Swal from "sweetalert2";
 
 export default function KanbanBoard({ parts, onRefresh }) {
   const fileInputRef = useRef(null);
@@ -58,9 +59,14 @@ export default function KanbanBoard({ parts, onRefresh }) {
 
     // 🛑 1. GÜVENLİK KİLİDİ: Kaplaması olmayan parçayı kaplamaya sokma
     if (targetProcess === "KAPLAMA" && !part.hasCoating) {
-      alert(
-        "⚠️ Bu parçanın siparişinde Kaplama/Boya işlemi bulunmuyor! Doğrudan Kalite Onayına sürükleyebilirsiniz.",
-      );
+      Swal.fire({
+        icon: "warning",
+        title: "Geçersiz İşlem!",
+        text: "Bu parçanın siparişinde Kaplama/Boya işlemi bulunmuyor! Doğrudan Kalite Onayına sürükleyebilirsiniz.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
@@ -69,9 +75,14 @@ export default function KanbanBoard({ parts, onRefresh }) {
       part.postProcess === "KALITE_KONTROL" &&
       targetProcess === "TESLIMAT_BEKLIYOR"
     ) {
-      alert(
-        "⚠️ DİKKAT: Kalite onayı sürükleyerek yapılamaz! Lütfen '📝 Kaliteyi İncele' butonuna tıklayarak ölçüm sonuçlarını onaylayın.",
-      );
+      Swal.fire({
+        icon: "warning",
+        title: "Dikkat!",
+        text: "Kalite onayı sürükleyerek yapılamaz! Lütfen '📝 Kaliteyi İncele' butonuna tıklayarak ölçüm sonuçlarını onaylayın.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
@@ -80,9 +91,14 @@ export default function KanbanBoard({ parts, onRefresh }) {
       part.postProcess === "TESLIMAT_BEKLIYOR" &&
       targetProcess === "TESLIM_EDILDI"
     ) {
-      alert(
-        "⚠️ DİKKAT: İrsaliye kesilmeden teslimat yapılamaz! Lütfen '📄 İrsaliye Kes ve Teslim Et' butonuna tıklayarak işlem yapın.",
-      );
+      Swal.fire({
+        icon: "warning",
+        title: "İrsaliye Gerekli!",
+        text: "İrsaliye kesilmeden teslimat yapılamaz! Lütfen '📄 İrsaliye Kes ve Teslim Et' butonuna tıklayarak işlem yapın.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
@@ -138,13 +154,27 @@ export default function KanbanBoard({ parts, onRefresh }) {
         body: JSON.stringify(updatedPart),
       });
 
-      alert(
-        `${part.partNo} numaralı parça için Kalite Belgesi başarıyla sisteme yüklendi!\nDosya Adı: ${uploadData.fileName} ✅`,
-      );
+      Swal.fire({
+        icon: "success",
+        title: "Belge Yüklendi!",
+        text: `${part.partNo} numaralı parça için Kalite Belgesi başarıyla sisteme yüklendi! Dosya Adı: ${uploadData.fileName}`,
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#10b981",
+        timer: 2000,
+        showConfirmButton: false,
+      });
       onRefresh();
     } catch (error) {
       console.error("Dosya yükleme hatası:", error);
-      alert("Belge yüklenirken bir hata oluştu.");
+      Swal.fire({
+        icon: "error",
+        title: "Yükleme Hatası!",
+        text: "Belge yüklenirken bir hata oluştu.",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     } finally {
       setUploadingPartId(null);
       e.target.value = null;
@@ -176,10 +206,26 @@ export default function KanbanBoard({ parts, onRefresh }) {
         body: JSON.stringify(updatedPart),
       });
       setQualityModalPart(null);
+      Swal.fire({
+        icon: "success",
+        title: "Onaylandı!",
+        text: "Parça kalite onayından geçerek teslimata gönderildi.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 1500,
+      });
       onRefresh();
     } catch (error) {
       console.error("Kalite onayı sırasında hata:", error);
-      alert("Onaylama sırasında bir hata oluştu!");
+      Swal.fire({
+        icon: "error",
+        title: "Hata!",
+        text: "Onaylama sırasında bir hata oluştu!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     }
   };
 
@@ -187,7 +233,14 @@ export default function KanbanBoard({ parts, onRefresh }) {
   const handleDeliveryApprove = async () => {
     if (!deliveryModalPart) return;
     if (!waybillNumber.trim()) {
-      alert("Lütfen geçerli bir İrsaliye Numarası giriniz!");
+      Swal.fire({
+        icon: "warning",
+        title: "Eksik Bilgi!",
+        text: "Lütfen geçerli bir İrsaliye Numarası giriniz!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
       return;
     }
 
@@ -214,10 +267,26 @@ export default function KanbanBoard({ parts, onRefresh }) {
       });
       setDeliveryModalPart(null);
       setWaybillNumber(""); // Formu temizle
+      Swal.fire({
+        icon: "success",
+        title: "Teslim Edildi!",
+        text: "İrsaliye başarıyla kesildi ve çıkış yapıldı.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 1500,
+      });
       onRefresh();
     } catch (error) {
       console.error("Teslimat onayı sırasında hata:", error);
-      alert("Teslimat işlemi sırasında bir hata oluştu!");
+      Swal.fire({
+        icon: "error",
+        title: "Hata!",
+        text: "Teslimat işlemi sırasında bir hata oluştu!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
     }
   };
 
@@ -303,7 +372,9 @@ export default function KanbanBoard({ parts, onRefresh }) {
                     marginBottom: "5px",
                   }}
                 >
-                  Paket: {part.workPackage?.packageNo}
+                  {part.workPackage.orderNo === part.workPackage.packageNo
+                    ? `Sipariş: ${part.workPackage.packageNo}`
+                    : `Sipariş: ${part.workPackage.orderNo} (Paket: ${part.workPackage.packageNo})`}
                 </div>
                 <div
                   style={{
@@ -677,8 +748,11 @@ export default function KanbanBoard({ parts, onRefresh }) {
                 {deliveryModalPart.workPackage?.customerName || "Bilinmiyor"}
               </p>
               <p style={{ margin: "0 0 5px 0" }}>
-                <strong>Paket No:</strong>{" "}
-                {deliveryModalPart.workPackage?.packageNo}
+                <strong>İşlem No:</strong>{" "}
+                {deliveryModalPart.workPackage?.orderNo ===
+                deliveryModalPart.workPackage?.packageNo
+                  ? deliveryModalPart.workPackage?.packageNo
+                  : `${deliveryModalPart.workPackage?.orderNo} (Paket: ${deliveryModalPart.workPackage?.packageNo})`}
               </p>
               <p style={{ margin: "0 0 5px 0" }}>
                 <strong>Ürün:</strong> {deliveryModalPart.productName}
