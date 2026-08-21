@@ -130,11 +130,11 @@ function App() {
   };
 
   const tabStyle = (tabName) => ({
-    padding: "12px 24px",
+    padding: "10px 20px",
     backgroundColor: activeTab === tabName ? "#3b82f6" : "#1e293b",
-    color: activeTab === tabName ? "#fff" : "#94a3b8",
+    color: "#fff",
     border: "none",
-    borderRadius: "8px 8px 0 0",
+    borderRadius: "8px",
     cursor: "pointer",
     fontWeight: "bold",
     marginRight: "10px",
@@ -174,7 +174,7 @@ function App() {
               marginBottom: "10px",
             }}
           >
-            ⚙️ Nexom ERP
+            Nexom ERP Yönetim Paneli
           </h2>
           <p
             style={{
@@ -315,7 +315,7 @@ function App() {
           }}
         >
           <h1 style={{ margin: 0, color: "#38bdf8", fontSize: "24px" }}>
-            ⚙️ Nexom ERP
+            Nexom ERP Yönetim Paneli
           </h1>
 
           <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
@@ -402,19 +402,10 @@ function App() {
             </button>
           )}
 
+          {/* Müşteriler sekmesini HERKES görebilir */}
           <button
+            style={tabStyle("CUSTOMERS")}
             onClick={() => setActiveTab("CUSTOMERS")}
-            style={{
-              backgroundColor:
-                activeTab === "CUSTOMERS" ? "#3b82f6" : "#1e293b",
-              color: "#fff",
-              border: "none",
-              padding: "10px 20px",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: "bold",
-              transition: "0.3s",
-            }}
           >
             👥 Müşteriler
           </button>

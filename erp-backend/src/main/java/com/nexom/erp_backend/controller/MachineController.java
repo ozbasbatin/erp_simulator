@@ -12,7 +12,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/machines")
-@CrossOrigin(origins = "*") // İleride frontend'den gelen isteklere izin vermek için
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class MachineController {
 
@@ -24,7 +24,7 @@ public class MachineController {
         return machineRepository.findAll();
     }
 
-    // Yeni makine ekleme (POST isteği)
+    // makine ekleme (POST isteği)
     @PostMapping
     public Machine addMachine(@RequestBody Machine machine) {
         return machineRepository.save(machine);
@@ -42,7 +42,6 @@ public class MachineController {
                     machine.setName(machineDetails.getName());
                     machine.setMaintenanceDate(machineDetails.getMaintenanceDate());
                     machine.setMaintenanceNote(machineDetails.getMaintenanceNote());
-                    // Operatör ismini güncelliyoruz
                     machine.setOperatorName(machineDetails.getOperatorName());
 
                     Machine updatedMachine = machineRepository.save(machine);

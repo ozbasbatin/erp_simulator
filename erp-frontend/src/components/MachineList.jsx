@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Swal from "sweetalert2";
 
 export default function MachineList({ machines, parts = [], onRefresh }) {
@@ -12,6 +12,9 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
   const [showQualityModal, setShowQualityModal] = useState(false);
 
   const [availableOperators, setAvailableOperators] = useState([]);
+
+  const dragItem = useRef(null);
+  const dragOverItem = useRef(null);
 
   useEffect(() => {
     const fetchOperators = async () => {
@@ -123,10 +126,12 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
 
     setIsUploading(true);
     try {
+      // 1. MEVCUT İŞİ TAMAMLA VE TESVİYEYE YOLLA
       const updatedPart = {
         ...activePartInModal,
         producedQuantity: activePartInModal.quantity,
         status: "TAMAMLANDI",
+        postProcess: "TESVIYE",
         machine: activePartInModal.machine
           ? { id: activePartInModal.machine.id }
           : null,
@@ -149,16 +154,41 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
 
       if (!updateRes.ok) throw new Error("Kayıt Hatası");
 
+      // 2. KUYRUKTAKİ SIRADAKİ İŞİ OTOMATİK BAŞLAT
+      // Seçili makinenin kuyruğundaki (SIRADA) parçaları bul ve sıraya göre diz
+      const nextPartInQueue = parts
+        .filter(
+          (p) => p.machine?.id === selectedMachine.id && p.status === "SIRADA",
+        )
+        .sort((a, b) => a.queueOrder - b.queueOrder)[0];
+
+      // Eğer sırada bekleyen bir iş varsa onu hemen URETIMDE yap!
+      if (nextPartInQueue) {
+        const nextPartUpdated = {
+          ...nextPartInQueue,
+          status: "URETIMDE",
+          queueOrder: null,
+        };
+
+        await fetch(`http://localhost:8080/api/parts/${nextPartInQueue.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(nextPartUpdated),
+        });
+      }
+
       setSelectedMachine(null);
 
       Swal.fire({
         icon: "success",
         title: "Tebrikler!",
-        text: "Üretim başarıyla tamamlandı ve parça sonrakı aşamaya aktarıldı.",
+        text: nextPartInQueue
+          ? "Üretim tamamlandı! Kuyruktaki sıradaki iş otomatik olarak tezgaha alındı."
+          : "Üretim başarıyla tamamlandı. Makine şu an boş.",
         background: "#1e293b",
         color: "#fff",
         showConfirmButton: false,
-        timer: 1500,
+        timer: 2500,
       });
 
       onRefresh();
@@ -175,6 +205,125 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleMaintenanceUpdate = async (machine) => {
+    const { value: formValues } = await Swal.fire({
+      title: `${machine.name} Bakım Ayarları`,
+      html: `
+        <div style="text-align: left; color: #fff; overflow-x: hidden;">
+          <label style="display: block; margin-bottom: 5px; font-size: 13px; color: #94a3b8;">Bakım Tarihi</label>
+          <input id="swal-m-date" type="date" style="width: 100%; box-sizing: border-box; margin: 0 0 15px 0; padding: 12px; border-radius: 6px; border: 1px solid #475569; background-color: #0f172a; color: #fff; font-size: 14px; outline: none;" value="${machine.maintenanceDate || ""}">
+          
+          <label style="display: block; margin-bottom: 5px; font-size: 13px; color: #94a3b8;">Bakım Notu</label>
+          <textarea id="swal-m-note" style="width: 100%; box-sizing: border-box; margin: 0; padding: 12px; border-radius: 6px; border: 1px solid #475569; background-color: #0f172a; color: #fff; font-size: 14px; min-height: 90px; resize: none; outline: none;" placeholder="Ustanın notu...">${machine.maintenanceNote || ""}</textarea>
+        </div>
+      `,
+      background: "#1e293b",
+      color: "#fff",
+      showCancelButton: true,
+      confirmButtonColor: "#3b82f6",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Kaydet",
+      cancelButtonText: "İptal",
+      focusConfirm: false,
+      preConfirm: () => {
+        return {
+          maintenanceDate: document.getElementById("swal-m-date").value,
+          maintenanceNote: document.getElementById("swal-m-note").value,
+        };
+      },
+    });
+
+    if (formValues) {
+      try {
+        // Backend'e hazır olan PUT isteğimizi yolluyoruz
+        const res = await fetch(
+          `http://localhost:8080/api/machines/${machine.id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...machine,
+              maintenanceDate: formValues.maintenanceDate,
+              maintenanceNote: formValues.maintenanceNote,
+            }),
+          },
+        );
+
+        if (!res.ok) throw new Error("Kayıt Hatası");
+
+        Swal.fire({
+          icon: "success",
+          title: "Kaydedildi!",
+          text: "Makine bakım bilgileri güncellendi.",
+          background: "#1e293b",
+          color: "#fff",
+          showConfirmButton: false,
+          timer: 1500,
+        });
+
+        onRefresh();
+      } catch (error) {
+        Swal.fire({
+          icon: "error",
+          title: "Hata!",
+          text: "Bakım kaydedilemedi.",
+          background: "#1e293b",
+          color: "#fff",
+        });
+      }
+    }
+  };
+  const handleQueueDragStart = (e, index) => {
+    dragItem.current = index;
+  };
+
+  const handleQueueDragEnter = (e, index) => {
+    dragOverItem.current = index;
+  };
+
+  const handleQueueDrop = async (e, queuedParts) => {
+    e.preventDefault();
+    const draggedIndex = dragItem.current;
+    const targetIndex = dragOverItem.current;
+
+    if (
+      draggedIndex === null ||
+      targetIndex === null ||
+      draggedIndex === targetIndex
+    )
+      return;
+
+    // 1. Yeni sırayı kurgula
+    const newQueue = [...queuedParts];
+    const draggedItem = newQueue[draggedIndex];
+    newQueue.splice(draggedIndex, 1);
+    newQueue.splice(targetIndex, 0, draggedItem);
+
+    // 2. Yeni sıra numaralarını (queueOrder) ver
+    newQueue.forEach((part, index) => {
+      part.queueOrder = index + 1;
+    });
+
+    // 3. Değişen sırayı Backend'e fırlat (Hepsi aynı anda)
+    try {
+      await Promise.all(
+        newQueue.map((part) =>
+          fetch(`http://localhost:8080/api/parts/${part.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(part),
+          }),
+        ),
+      );
+      onRefresh(); // ERP'yi güncelle
+    } catch (error) {
+      console.error("Kuyruk güncellenirken hata:", error);
+    }
+
+    dragItem.current = null;
+    dragOverItem.current = null;
   };
 
   return (
@@ -306,6 +455,7 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
+                  alignItems: "center",
                   borderBottom: "1px solid #334155",
                   paddingBottom: "10px",
                   marginBottom: "15px",
@@ -314,18 +464,49 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                 <h3 style={{ margin: 0, color: "#f8fafc", fontSize: "18px" }}>
                   {m.name}
                 </h3>
-                <button
-                  onClick={() => handleDeleteMachine(m.id)}
-                  style={{
-                    background: "transparent",
-                    color: "#ef4444",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "12px",
-                  }}
+
+                <div
+                  style={{ display: "flex", gap: "10px", alignItems: "center" }}
                 >
-                  Sil ✖
-                </button>
+                  <button
+                    onClick={() => handleMaintenanceUpdate(m)}
+                    title={
+                      m.maintenanceNote || "Bakım notu eklemek için tıklayın"
+                    }
+                    style={{
+                      background: m.maintenanceDate ? "#f59e0b" : "#475569",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "4px 8px",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    🔧{" "}
+                    {m.maintenanceDate
+                      ? `Bakım: ${m.maintenanceDate}`
+                      : "Bakım Ekle"}
+                  </button>
+
+                  <button
+                    onClick={() => handleDeleteMachine(m.id)}
+                    style={{
+                      background: "transparent",
+                      color: "#ef4444",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    Sil ✖
+                  </button>
+                </div>
               </div>
 
               <div
@@ -664,6 +845,107 @@ export default function MachineList({ machines, parts = [], onRefresh }) {
                 Bu makinede şu an aktif bir üretim bulunmuyor.
               </p>
             )}
+            {/* --- SIRADAKİ İŞLER (KUYRUK) --- */}
+            <div
+              style={{
+                marginTop: "30px",
+                borderTop: "1px solid #334155",
+                paddingTop: "20px",
+              }}
+            >
+              <h4 style={{ color: "#38bdf8", marginBottom: "15px", margin: 0 }}>
+                Sıradaki İşler (Sürükle & Bırak)
+              </h4>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                {parts
+                  .filter(
+                    (p) =>
+                      p.machine?.id === selectedMachine.id &&
+                      p.status === "SIRADA",
+                  )
+                  .sort((a, b) => a.queueOrder - b.queueOrder)
+                  .map((queuedPart, index, arr) => (
+                    <div
+                      key={queuedPart.id}
+                      draggable
+                      onDragStart={(e) => handleQueueDragStart(e, index)}
+                      onDragEnter={(e) => handleQueueDragEnter(e, index)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => handleQueueDrop(e, arr)}
+                      style={{
+                        backgroundColor: "#0f172a",
+                        border: "1px solid #475569",
+                        padding: "12px",
+                        borderRadius: "8px",
+                        cursor: "grab",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        transition: "transform 0.2s",
+                      }}
+                      onMouseOver={(e) =>
+                        (e.currentTarget.style.transform = "translateX(5px)")
+                      }
+                      onMouseOut={(e) =>
+                        (e.currentTarget.style.transform = "translateX(0)")
+                      }
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            backgroundColor: "#334155",
+                            color: "#cbd5e1",
+                            padding: "4px 8px",
+                            borderRadius: "4px",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                          }}
+                        >
+                          {index + 1}. Sıra
+                        </span>
+                        <div style={{ color: "#cbd5e1", fontSize: "14px" }}>
+                          <strong style={{ color: "#fff" }}>
+                            {queuedPart.partNo}
+                          </strong>{" "}
+                          - {queuedPart.productName}
+                        </div>
+                      </div>
+                      <div style={{ color: "#94a3b8", fontSize: "13px" }}>
+                        Adet: {queuedPart.quantity}
+                      </div>
+                    </div>
+                  ))}
+
+                {parts.filter(
+                  (p) =>
+                    p.machine?.id === selectedMachine.id &&
+                    p.status === "SIRADA",
+                ).length === 0 && (
+                  <p
+                    style={{
+                      color: "#94a3b8",
+                      fontStyle: "italic",
+                      fontSize: "13px",
+                    }}
+                  >
+                    Bu makinenin sırasında bekleyen iş yok.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

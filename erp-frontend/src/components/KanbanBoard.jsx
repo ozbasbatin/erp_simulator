@@ -4,14 +4,9 @@ import Swal from "sweetalert2";
 export default function KanbanBoard({ parts, onRefresh }) {
   const fileInputRef = useRef(null);
   const [uploadingPartId, setUploadingPartId] = useState(null);
-
   const [qualityModalPart, setQualityModalPart] = useState(null);
 
-  const [deliveryModalPart, setDeliveryModalPart] = useState(null);
-  const [waybillNumber, setWaybillNumber] = useState("");
-
   // AKILLI DOMİNO TEMİZLİĞİ
-  // Sadece "TAMAMLANDI" (Üretimden çıkmış) olanları al
   const kanbanParts = parts.filter((p) => {
     if (p.status !== "TAMAMLANDI") return false;
 
@@ -19,14 +14,12 @@ export default function KanbanBoard({ parts, onRefresh }) {
       const allPartsOfPackage = parts.filter(
         (otherPart) => otherPart.workPackage?.id === p.workPackage.id,
       );
-
       const isEntirePackageDelivered =
         allPartsOfPackage.length > 0 &&
         allPartsOfPackage.every((op) => op.postProcess === "TESLIM_EDILDI");
 
       if (isEntirePackageDelivered) return false;
     }
-
     return true;
   });
 
@@ -34,12 +27,8 @@ export default function KanbanBoard({ parts, onRefresh }) {
     { id: "TESVIYE", title: "🪚 Tesviye", color: "#f59e0b" },
     { id: "KAPLAMA", title: "🎨 Kaplama / Boya", color: "#d946ef" },
     { id: "KALITE_KONTROL", title: "🔎 Kalite Onayı", color: "#3b82f6" },
-    {
-      id: "TESLIMAT_BEKLIYOR",
-      title: "📦 Teslimat Bekliyor",
-      color: "#8b5cf6",
-    },
-    { id: "TESLIM_EDILDI", title: "✅ Teslim Edildi", color: "#10b981" },
+    { id: "TESLIMAT_BEKLIYOR", title: "📦 Teslimata Hazır", color: "#8b5cf6" },
+    // 2. "TESLIM_EDILDI" KOLONUNU SİLDİK, ÇÜNKÜ İRSALİYE KESİLDİĞİNDE PARÇALAR BURADAN KAYBOLACAK.
   ];
 
   const handleDragStart = (e, partId) => {
@@ -57,7 +46,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
 
     if (!part || part.postProcess === targetProcess) return;
 
-    // 🛑 1. GÜVENLİK KİLİDİ: Kaplaması olmayan parçayı kaplamaya sokma
     if (targetProcess === "KAPLAMA" && !part.hasCoating) {
       Swal.fire({
         icon: "warning",
@@ -70,7 +58,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
       return;
     }
 
-    // 🛑 2. GÜVENLİK KİLİDİ: Kaliteden sürükleyerek çıkarmayı engelle!
     if (
       part.postProcess === "KALITE_KONTROL" &&
       targetProcess === "TESLIMAT_BEKLIYOR"
@@ -86,21 +73,7 @@ export default function KanbanBoard({ parts, onRefresh }) {
       return;
     }
 
-    // 🛑 3. GÜVENLİK KİLİDİ (YENİ): İrsaliye kesmeden teslimata sürüklemeyi engelle!
-    if (
-      part.postProcess === "TESLIMAT_BEKLIYOR" &&
-      targetProcess === "TESLIM_EDILDI"
-    ) {
-      Swal.fire({
-        icon: "warning",
-        title: "İrsaliye Gerekli!",
-        text: "İrsaliye kesilmeden teslimat yapılamaz! Lütfen '📄 İrsaliye Kes ve Teslim Et' butonuna tıklayarak işlem yapın.",
-        background: "#1e293b",
-        color: "#fff",
-        confirmButtonColor: "#3b82f6",
-      });
-      return;
-    }
+    // 3. İRSALİYE GÜVENLİK KİLİDİNİ SİLDİK, ÇÜNKÜ "TESLİM EDİLDİ" KOLONU ARTIK YOK.
 
     const updatedPart = {
       ...part,
@@ -181,7 +154,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
     }
   };
 
-  // Kalite Panelinden Ölçümü Onaylama ve Teslimata Gönderme
   const handleQualityApprove = async () => {
     if (!qualityModalPart) return;
 
@@ -222,67 +194,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
         icon: "error",
         title: "Hata!",
         text: "Onaylama sırasında bir hata oluştu!",
-        background: "#1e293b",
-        color: "#fff",
-        confirmButtonColor: "#3b82f6",
-      });
-    }
-  };
-
-  // YENİ: İrsaliye Panelinden Teslimatı Onaylama
-  const handleDeliveryApprove = async () => {
-    if (!deliveryModalPart) return;
-    if (!waybillNumber.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Eksik Bilgi!",
-        text: "Lütfen geçerli bir İrsaliye Numarası giriniz!",
-        background: "#1e293b",
-        color: "#fff",
-        confirmButtonColor: "#3b82f6",
-      });
-      return;
-    }
-
-    const updatedPart = {
-      ...deliveryModalPart,
-      postProcess: "TESLIM_EDILDI",
-      waybillNumber: waybillNumber,
-      machine: deliveryModalPart.machine
-        ? { id: deliveryModalPart.machine.id }
-        : null,
-      workPackage: deliveryModalPart.workPackage
-        ? { id: deliveryModalPart.workPackage.id }
-        : null,
-      operator: deliveryModalPart.operator
-        ? { id: deliveryModalPart.operator.id }
-        : null,
-    };
-
-    try {
-      await fetch(`http://localhost:8080/api/parts/${deliveryModalPart.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedPart),
-      });
-      setDeliveryModalPart(null);
-      setWaybillNumber(""); // Formu temizle
-      Swal.fire({
-        icon: "success",
-        title: "Teslim Edildi!",
-        text: "İrsaliye başarıyla kesildi ve çıkış yapıldı.",
-        background: "#1e293b",
-        color: "#fff",
-        showConfirmButton: false,
-        timer: 1500,
-      });
-      onRefresh();
-    } catch (error) {
-      console.error("Teslimat onayı sırasında hata:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Hata!",
-        text: "Teslimat işlemi sırasında bir hata oluştu!",
         background: "#1e293b",
         color: "#fff",
         confirmButtonColor: "#3b82f6",
@@ -474,7 +385,6 @@ export default function KanbanBoard({ parts, onRefresh }) {
                   )}
                 </div>
 
-                {/* Kaliteyi İncele Butonu SADECE Kalite kolonundayken çıksın */}
                 {col.id === "KALITE_KONTROL" && (
                   <button
                     onClick={() => setQualityModalPart(part)}
@@ -496,55 +406,12 @@ export default function KanbanBoard({ parts, onRefresh }) {
                   </button>
                 )}
 
-                {/* YENİ: İrsaliye Kes Butonu SADECE Teslimat Bekliyor kolonundayken çıksın */}
-                {col.id === "TESLIMAT_BEKLIYOR" && (
-                  <button
-                    onClick={() => {
-                      setDeliveryModalPart(part);
-                      setWaybillNumber(""); // Modal açılırken eski yazılanları temizle
-                    }}
-                    style={{
-                      width: "100%",
-                      marginTop: "12px",
-                      backgroundColor: "#8b5cf6", // Teslimat kolonunun rengiyle uyumlu
-                      color: "#fff",
-                      border: "none",
-                      padding: "8px",
-                      borderRadius: "6px",
-                      fontWeight: "bold",
-                      cursor: "pointer",
-                      fontSize: "13px",
-                      boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-                    }}
-                  >
-                    📄 İrsaliye Kes ve Teslim Et
-                  </button>
-                )}
-                {col.id === "TESLIM_EDILDI" && part.waybillNumber && (
-                  <div
-                    style={{
-                      width: "100%",
-                      marginTop: "12px",
-                      backgroundColor: "#064e3b",
-                      color: "#34d399",
-                      border: "1px solid #10b981",
-                      padding: "8px",
-                      borderRadius: "6px",
-                      fontWeight: "bold",
-                      fontSize: "12px",
-                      textAlign: "center",
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    📄 İrsaliye: {part.waybillNumber}
-                  </div>
-                )}
+                {/* 5. "İrsaliye Kes" ve "İrsaliye Belgesini Aç" BUTTONLARINI SİLDİK */}
               </div>
             ))}
         </div>
       ))}
 
-      {/* KALİTE ONAY PENCERESİ (MODAL) */}
       {qualityModalPart && (
         <div
           style={{
@@ -703,133 +570,7 @@ export default function KanbanBoard({ parts, onRefresh }) {
         </div>
       )}
 
-      {/* YENİ: İRSALİYE KESME VE TESLİMAT PENCERESİ (MODAL) */}
-      {deliveryModalPart && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            backgroundColor: "rgba(0,0,0,0.8)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 1500,
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: "#1e293b",
-              padding: "25px",
-              borderRadius: "12px",
-              width: "450px",
-              border: "1px solid #475569",
-              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
-            }}
-          >
-            <h3 style={{ margin: "0 0 15px 0", color: "#f8fafc" }}>
-              📦 İrsaliye ve Teslimat İşlemi
-            </h3>
-
-            <div
-              style={{
-                backgroundColor: "#0f172a",
-                padding: "15px",
-                borderRadius: "8px",
-                color: "#cbd5e1",
-                marginBottom: "20px",
-                border: "1px solid #475569",
-              }}
-            >
-              <p style={{ margin: "0 0 5px 0" }}>
-                <strong>Firma/Müşteri:</strong>{" "}
-                {deliveryModalPart.workPackage?.customerName || "Bilinmiyor"}
-              </p>
-              <p style={{ margin: "0 0 5px 0" }}>
-                <strong>İşlem No:</strong>{" "}
-                {deliveryModalPart.workPackage?.orderNo ===
-                deliveryModalPart.workPackage?.packageNo
-                  ? deliveryModalPart.workPackage?.packageNo
-                  : `${deliveryModalPart.workPackage?.orderNo} (Paket: ${deliveryModalPart.workPackage?.packageNo})`}
-              </p>
-              <p style={{ margin: "0 0 5px 0" }}>
-                <strong>Ürün:</strong> {deliveryModalPart.productName}
-              </p>
-              <p style={{ margin: "0" }}>
-                <strong>Adet:</strong> {deliveryModalPart.producedQuantity} /{" "}
-                {deliveryModalPart.quantity}
-              </p>
-            </div>
-
-            <div style={{ marginBottom: "20px" }}>
-              <label
-                style={{
-                  display: "block",
-                  color: "#94a3b8",
-                  marginBottom: "8px",
-                  fontSize: "13px",
-                }}
-              >
-                Sevk İrsaliye Numarası:
-              </label>
-              <input
-                type="text"
-                placeholder="Örn: IRS-2026-0819"
-                value={waybillNumber}
-                onChange={(e) => setWaybillNumber(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  borderRadius: "6px",
-                  border: "1px solid #475569",
-                  backgroundColor: "#0f172a",
-                  color: "#fff",
-                  boxSizing: "border-box",
-                }}
-                required
-              />
-            </div>
-
-            <div
-              style={{ display: "flex", gap: "10px", flexDirection: "column" }}
-            >
-              <button
-                onClick={handleDeliveryApprove}
-                style={{
-                  backgroundColor: "#10b981",
-                  color: "#fff",
-                  border: "none",
-                  padding: "15px",
-                  borderRadius: "6px",
-                  fontWeight: "bold",
-                  cursor: "pointer",
-                  fontSize: "16px",
-                  boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
-                }}
-              >
-                ✅ İrsaliyeyi Kes ve Çıkış Yap
-              </button>
-            </div>
-
-            <button
-              onClick={() => setDeliveryModalPart(null)}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#94a3b8",
-                width: "100%",
-                marginTop: "15px",
-                cursor: "pointer",
-                fontSize: "14px",
-              }}
-            >
-              İptal Et
-            </button>
-          </div>
-        </div>
-      )}
+      {/* 6. TESLİMAT MODALINI TAMAMEN SİLDİK */}
     </div>
   );
 }

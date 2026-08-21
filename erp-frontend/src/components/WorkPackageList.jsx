@@ -40,6 +40,12 @@ export default function WorkPackageList({
     useState("");
   const [availableOperators, setAvailableOperators] = useState([]);
 
+  const [activeTab, setActiveTab] = useState("ACTIVE");
+  const [deliveryModalPackage, setDeliveryModalPackage] = useState(null);
+  const [packageWaybillFile, setPackageWaybillFile] = useState(null);
+  const [isUploadingPackageDelivery, setIsUploadingPackageDelivery] =
+    useState(false);
+
   useEffect(() => {
     const fetchDropdownData = async () => {
       try {
@@ -172,6 +178,53 @@ export default function WorkPackageList({
         showConfirmButton: false,
         timer: 1500,
       });
+    }
+  };
+
+  // YENİ: TAMAMLANAN PAKETİ KOMPLE SİLME (GEÇMİŞİ TEMİZLEME)
+  const handleDeleteCompletedPackage = async (pkg) => {
+    const result = await Swal.fire({
+      title: "Geçmişi Temizle?",
+      text: "Bu tamamlanmış paketi ve içindeki tüm üretim kayıtlarını kalıcı olarak silmek istediğinize emin misiniz?",
+      icon: "warning",
+      showCancelButton: true,
+      background: "#1e293b",
+      color: "#fff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#475569",
+      confirmButtonText: "Evet, Komple Sil!",
+      cancelButtonText: "İptal",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const pkgParts = safeParts.filter((p) => p.workPackage?.id === pkg.id);
+        await Promise.all(
+          pkgParts.map((p) =>
+            fetch(`http://localhost:8080/api/parts/${p.id}`, {
+              method: "DELETE",
+            }),
+          ),
+        );
+
+        await fetch(`http://localhost:8080/api/work-packages/${pkg.id}`, {
+          method: "DELETE",
+        });
+
+        Swal.fire({
+          icon: "success",
+          title: "Temizlendi!",
+          text: "Paket ve tüm geçmişi sistemden silindi.",
+          background: "#1e293b",
+          color: "#fff",
+          showConfirmButton: false,
+          timer: 1500,
+        });
+
+        if (onRefresh) onRefresh();
+      } catch (error) {
+        console.error("Silme hatası:", error);
+      }
     }
   };
 
@@ -456,16 +509,79 @@ export default function WorkPackageList({
       });
       return;
     }
+
     const isMachineBusy = safeParts.some(
       (p) =>
         p.machine?.id === Number(selectedMachineForProduction) &&
         p.status === "URETIMDE",
     );
+
+    let targetStatus = "URETIMDE";
+    let newQueueOrder = null;
+
     if (isMachineBusy) {
+      targetStatus = "SIRADA";
+      const queuedPartsCount = safeParts.filter(
+        (p) =>
+          p.machine?.id === Number(selectedMachineForProduction) &&
+          p.status === "SIRADA",
+      ).length;
+      newQueueOrder = queuedPartsCount + 1;
+    }
+
+    const updatedPart = {
+      ...productionModalPart,
+      status: targetStatus,
+      queueOrder: newQueueOrder,
+      machine: { id: Number(selectedMachineForProduction) },
+      operator: { id: Number(selectedOperatorForProduction) },
+    };
+
+    try {
+      await fetch(`http://localhost:8080/api/parts/${productionModalPart.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedPart),
+      });
+
+      setProductionModalPart(null);
+      setSelectedMachineForProduction("");
+      setSelectedOperatorForProduction("");
+      if (onRefresh) onRefresh();
+
+      if (isMachineBusy) {
+        Swal.fire({
+          icon: "info",
+          title: "Sıraya Alındı!",
+          text: `Seçilen makine dolu olduğu için bu parça kuyruğa (${newQueueOrder}. sıraya) eklendi.`,
+          background: "#1e293b",
+          color: "#fff",
+          showConfirmButton: false,
+          timer: 2000,
+        });
+      } else {
+        Swal.fire({
+          icon: "success",
+          title: "Üretim Başladı!",
+          text: "Makine boştu, parça doğrudan tezgaha gönderildi.",
+          background: "#1e293b",
+          color: "#fff",
+          showConfirmButton: false,
+          timer: 1500,
+        });
+      }
+    } catch (error) {
+      console.error("Tezgaha gönderilirken hata:", error);
+    }
+  };
+
+  const handlePackageDeliveryApprove = async () => {
+    if (!deliveryModalPackage) return;
+    if (!packageWaybillFile) {
       Swal.fire({
-        icon: "error",
-        title: "Tezgah Dolu!",
-        text: "Seçilen makine şu anda dolu! Lütfen boş bir makine seçin.",
+        icon: "warning",
+        title: "Eksik Bilgi!",
+        text: "Lütfen tüm paket için geçerli olacak İrsaliye belgesini (PDF, JPG vb.) yükleyiniz!",
         background: "#1e293b",
         color: "#fff",
         confirmButtonColor: "#3b82f6",
@@ -473,31 +589,74 @@ export default function WorkPackageList({
       return;
     }
 
-    const updatedPart = {
-      ...productionModalPart,
-      status: "URETIMDE",
-      machine: { id: Number(selectedMachineForProduction) },
-      operator: { id: Number(selectedOperatorForProduction) },
-    };
-    await fetch(`http://localhost:8080/api/parts/${productionModalPart.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updatedPart),
-    });
-    setProductionModalPart(null);
-    setSelectedMachineForProduction("");
-    setSelectedOperatorForProduction("");
-    if (onRefresh) onRefresh();
+    setIsUploadingPackageDelivery(true);
+    let uploadedFileName = null;
 
-    Swal.fire({
-      icon: "success",
-      title: "Üretim Başladı!",
-      text: "Parça tezgaha başarıyla gönderildi.",
-      background: "#1e293b",
-      color: "#fff",
-      showConfirmButton: false,
-      timer: 1500,
-    });
+    try {
+      const formData = new FormData();
+      formData.append("file", packageWaybillFile);
+
+      const uploadRes = await fetch("http://localhost:8080/api/files/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!uploadRes.ok) throw new Error("Dosya yükleme başarısız!");
+
+      const uploadData = await uploadRes.json();
+      uploadedFileName = uploadData.fileName;
+
+      const packageParts = safeParts.filter(
+        (p) => p.workPackage?.id === deliveryModalPackage.id,
+      );
+
+      await Promise.all(
+        packageParts.map(async (part) => {
+          const updatedPart = {
+            ...part,
+            status: "TAMAMLANDI",
+            postProcess: "TESLIM_EDILDI",
+            waybillNumber: uploadedFileName,
+            machine: part.machine ? { id: part.machine.id } : null,
+            workPackage: part.workPackage ? { id: part.workPackage.id } : null,
+            operator: part.operator ? { id: part.operator.id } : null,
+          };
+
+          return fetch(`http://localhost:8080/api/parts/${part.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(updatedPart),
+          });
+        }),
+      );
+
+      setDeliveryModalPackage(null);
+      setPackageWaybillFile(null);
+
+      Swal.fire({
+        icon: "success",
+        title: "Paket Teslim Edildi!",
+        text: "Tüm parçalar başarıyla teslim edildi ve irsaliye hepsine işlendi.",
+        background: "#1e293b",
+        color: "#fff",
+        showConfirmButton: false,
+        timer: 2000,
+      });
+
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Toplu teslimat sırasında hata:", error);
+      Swal.fire({
+        icon: "error",
+        title: "Hata!",
+        text: "Teslimat işlemi sırasında bir hata oluştu!",
+        background: "#1e293b",
+        color: "#fff",
+        confirmButtonColor: "#3b82f6",
+      });
+    } finally {
+      setIsUploadingPackageDelivery(false);
+    }
   };
 
   const getProcessBadge = (part) => {
@@ -529,6 +688,21 @@ export default function WorkPackageList({
           }}
         >
           Sırada Bekliyor
+        </span>
+      );
+    if (part.status === "SIRADA")
+      return (
+        <span
+          style={{
+            backgroundColor: "#ca8a04",
+            color: "#fff",
+            padding: "4px 8px",
+            borderRadius: "4px",
+            fontSize: "12px",
+            fontWeight: "bold",
+          }}
+        >
+          ⏳ Makinede Sırada
         </span>
       );
     if (part.status === "URETIMDE")
@@ -704,6 +878,29 @@ export default function WorkPackageList({
             <h2 style={{ margin: 0, color: "#38bdf8" }}>
               Paket Yönetimi: {selectedPackage.packageNo}
             </h2>
+            {/* YENİ: PAKETİN ANA İRSALİYESİNİ TEPEDE GÖSTER */}
+            {safeParts.find(
+              (p) =>
+                p.workPackage?.id === selectedPackage.id && p.waybillNumber,
+            )?.waybillNumber && (
+              <a
+                href={`http://localhost:8080/api/files/${safeParts.find((p) => p.workPackage?.id === selectedPackage.id && p.waybillNumber).waybillNumber}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  backgroundColor: "#059669",
+                  color: "#fff",
+                  padding: "8px 16px",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  marginLeft: "15px",
+                  textDecoration: "none",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                }}
+              >
+                📄 İrsaliyeyi Aç
+              </a>
+            )}
             {selectedPackage.customer && (
               <span
                 style={{
@@ -927,69 +1124,77 @@ export default function WorkPackageList({
                       <td style={{ padding: "10px", color: "#cbd5e1" }}>
                         {p.producedQuantity} / {p.quantity}
                       </td>
-                      <td style={{ padding: "10px" }}>{getProcessBadge(p)}</td>
                       <td
                         style={{
                           padding: "10px",
-                          textAlign: "right",
                           display: "flex",
-                          gap: "5px",
-                          justifyContent: "flex-end",
+                          alignItems: "center",
+                          gap: "10px",
                         }}
                       >
-                        {p.status === "HAMMADDE_BEKLIYOR" && (
-                          <button
-                            onClick={() => handleHammaddeGeldi(p)}
-                            style={{
-                              backgroundColor: "#8b5cf6",
-                              color: "#fff",
-                              border: "none",
-                              padding: "6px 10px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            Hammadde Geldi 📦
-                          </button>
-                        )}
-                        {p.status === "BEKLIYOR" && (
-                          <button
-                            onClick={() => setProductionModalPart(p)}
-                            style={{
-                              backgroundColor: "#ca8a04",
-                              color: "#fff",
-                              border: "none",
-                              padding: "6px 10px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            Üretime Al ⚙️
-                          </button>
-                        )}
-
-                        {/* SADECE ADMİN PARÇA SİLEBİLİR */}
-                        {user?.role === "ADMIN" && (
-                          <button
-                            onClick={() => handleDeletePart(p.id)}
-                            style={{
-                              backgroundColor: "#ef4444",
-                              color: "#fff",
-                              border: "none",
-                              padding: "6px 10px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            Sil
-                          </button>
-                        )}
+                        {getProcessBadge(p)}
+                      </td>
+                      <td style={{ padding: "10px", verticalAlign: "middle" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "5px",
+                            justifyContent: "flex-end",
+                            alignItems: "center",
+                          }}
+                        >
+                          {p.status === "HAMMADDE_BEKLIYOR" && (
+                            <button
+                              onClick={() => handleHammaddeGeldi(p)}
+                              style={{
+                                backgroundColor: "#8b5cf6",
+                                color: "#fff",
+                                border: "none",
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                              }}
+                            >
+                              Hammadde Geldi 📦
+                            </button>
+                          )}
+                          {p.status === "BEKLIYOR" && (
+                            <button
+                              onClick={() => setProductionModalPart(p)}
+                              style={{
+                                backgroundColor: "#ca8a04",
+                                color: "#fff",
+                                border: "none",
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                              }}
+                            >
+                              Üretime Al ⚙️
+                            </button>
+                          )}
+                          {user?.role === "ADMIN" && (
+                            <button
+                              onClick={() => handleDeletePart(p.id)}
+                              style={{
+                                backgroundColor: "#ef4444",
+                                color: "#fff",
+                                border: "none",
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                              }}
+                            >
+                              Sil
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1018,11 +1223,48 @@ export default function WorkPackageList({
               justifyContent: "space-between",
               alignItems: "center",
               marginBottom: "25px",
+              borderBottom: "1px solid #334155",
+              paddingBottom: "15px",
             }}
           >
-            <h2 style={{ margin: 0, color: "#f8fafc" }}>
-              Kayıtlı İş Paketleri
-            </h2>
+            {/* SEKMELER (TABS) */}
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button
+                onClick={() => setActiveTab("ACTIVE")}
+                style={{
+                  backgroundColor:
+                    activeTab === "ACTIVE" ? "#3b82f6" : "transparent",
+                  color: activeTab === "ACTIVE" ? "#fff" : "#94a3b8",
+                  padding: "10px 20px",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  fontSize: "16px",
+                  transition: "0.2s",
+                }}
+              >
+                🛠️ Aktif Paketler
+              </button>
+              <button
+                onClick={() => setActiveTab("COMPLETED")}
+                style={{
+                  backgroundColor:
+                    activeTab === "COMPLETED" ? "#10b981" : "transparent",
+                  color: activeTab === "COMPLETED" ? "#fff" : "#94a3b8",
+                  padding: "10px 20px",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  fontSize: "16px",
+                  transition: "0.2s",
+                }}
+              >
+                ✅ Tamamlananlar
+              </button>
+            </div>
+
             <button
               onClick={() => setShowPackageForm(!showPackageForm)}
               style={{
@@ -1160,105 +1402,128 @@ export default function WorkPackageList({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
               gap: "20px",
             }}
           >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                gap: "20px",
-              }}
-            >
-              {safePackages
-                .filter((wp) => {
-                  // 1. İptal edildiyse gizle
-                  if (wp.isCancelled || wp.cancelled) return false;
+            {safePackages
+              .filter((wp) => {
+                if (wp.isCancelled || wp.cancelled) return false;
 
-                  // 2. Parçaların hepsi teslim edildiyse (Tamamlandıysa) otomatik gizle
-                  const wpParts = safeParts.filter(
-                    (p) => p.workPackage?.id === wp.id,
+                const wpParts = safeParts.filter(
+                  (p) => p.workPackage?.id === wp.id,
+                );
+                const isFullyDelivered =
+                  wpParts.length > 0 &&
+                  wpParts.every(
+                    (p) =>
+                      p.status === "TAMAMLANDI" &&
+                      p.postProcess === "TESLIM_EDILDI",
                   );
-                  const isFullyDelivered =
-                    wpParts.length > 0 &&
-                    wpParts.every(
-                      (p) =>
-                        p.status === "TAMAMLANDI" &&
-                        p.postProcess === "TESLIM_EDILDI",
-                    );
 
-                  return !isFullyDelivered; // Sadece tamamlanMAMIŞ olanları ekranda bırak
-                })
-                .map((wp) => {
-                  const packagePartsCount = safeParts.filter(
-                    (p) => p.workPackage?.id === wp.id,
-                  ).length;
-                  return (
-                    <div
-                      key={wp.id}
-                      style={{
-                        backgroundColor: "#1e293b",
-                        border: "1px solid #334155",
-                        borderRadius: "12px",
-                        padding: "20px",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "15px",
-                      }}
-                    >
-                      <div>
-                        <h3
-                          style={{
-                            margin: "0 0 5px 0",
-                            color: "#38bdf8",
-                            fontSize: "18px",
-                          }}
-                        >
-                          {wp.orderNo === wp.packageNo
-                            ? `📦 Sipariş / Paket: ${wp.packageNo}`
-                            : `📦 Sipariş: ${wp.orderNo} (Paket: ${wp.packageNo})`}
-                        </h3>
+                if (activeTab === "ACTIVE" && isFullyDelivered) return false;
+                if (activeTab === "COMPLETED" && !isFullyDelivered)
+                  return false;
+
+                return true;
+              })
+              .map((wp) => {
+                const packageParts = safeParts.filter(
+                  (p) => p.workPackage?.id === wp.id,
+                );
+                const packagePartsCount = packageParts.length;
+
+                const isReadyForDelivery =
+                  packagePartsCount > 0 &&
+                  packageParts.every(
+                    (p) =>
+                      p.status === "TAMAMLANDI" &&
+                      p.postProcess === "TESLIMAT_BEKLIYOR",
+                  );
+
+                const wpWaybill = packageParts.find(
+                  (p) => p.waybillNumber,
+                )?.waybillNumber;
+
+                return (
+                  <div
+                    key={wp.id}
+                    style={{
+                      backgroundColor: "#1e293b",
+                      border: "1px solid #334155",
+                      borderRadius: "12px",
+                      padding: "20px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "15px",
+                      position: "relative",
+                    }}
+                  >
+                    {activeTab === "COMPLETED" && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "10px",
+                          right: "10px",
+                          backgroundColor: "#064e3b",
+                          color: "#34d399",
+                          padding: "4px 8px",
+                          borderRadius: "4px",
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        ✓ Teslim Edildi
+                      </div>
+                    )}
+
+                    <div>
+                      <h3
+                        style={{
+                          margin: "0 0 5px 0",
+                          color: "#38bdf8",
+                          fontSize: "18px",
+                        }}
+                      >
+                        {wp.orderNo === wp.packageNo
+                          ? `📦 Sipariş / Paket: ${wp.packageNo}`
+                          : `📦 Sipariş: ${wp.orderNo} (Paket: ${wp.packageNo})`}
+                      </h3>
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          color: "#94a3b8",
+                          display: "block",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        İçerik: {packagePartsCount} Parça
+                      </span>
+                      {wp.customer && (
                         <span
                           style={{
                             fontSize: "13px",
-                            color: "#94a3b8",
+                            color: "#10b981",
                             display: "block",
-                            marginBottom: "8px",
+                            marginBottom: "5px",
+                            fontWeight: "bold",
                           }}
                         >
-                          İçerik: {packagePartsCount} Parça
+                          👤 {wp.customer.companyName}
                         </span>
-                        {wp.customer && (
-                          <span
-                            style={{
-                              fontSize: "13px",
-                              color: "#10b981",
-                              display: "block",
-                              marginBottom: "5px",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            👤 {wp.customer.companyName}
-                          </span>
-                        )}
-                        {wp.qualityNotes && (
-                          <span
-                            style={{
-                              fontSize: "12px",
-                              color: "#cbd5e1",
-                              fontStyle: "italic",
-                              display: "block",
-                              marginBottom: "8px",
-                              borderLeft: "2px solid #3b82f6",
-                              paddingLeft: "5px",
-                            }}
-                          >
-                            📝 {wp.qualityNotes}
-                          </span>
-                        )}
-                        {renderDeadlineBadge(wp.deliveryDate)}
-                      </div>
+                      )}
+                      {activeTab === "ACTIVE" &&
+                        renderDeadlineBadge(wp.deliveryDate)}
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        flexDirection: "column",
+                        marginTop: "auto",
+                      }}
+                    >
                       <div style={{ display: "flex", gap: "10px" }}>
                         <button
                           onClick={() => setSelectedPackage(wp)}
@@ -1276,8 +1541,7 @@ export default function WorkPackageList({
                           İçine Gir / Yönet ➔
                         </button>
 
-                        {/* SADECE ADMİN İPTAL EDEBİLİR */}
-                        {user?.role === "ADMIN" && (
+                        {user?.role === "ADMIN" && activeTab === "ACTIVE" && (
                           <button
                             onClick={() => handleCancelPackage(wp.id)}
                             style={{
@@ -1290,14 +1554,77 @@ export default function WorkPackageList({
                               fontWeight: "bold",
                             }}
                           >
-                            İptal Et 🚫
+                            İptal 🚫
                           </button>
                         )}
+
+                        {user?.role === "ADMIN" &&
+                          activeTab === "COMPLETED" && (
+                            <button
+                              onClick={() => handleDeleteCompletedPackage(wp)}
+                              style={{
+                                padding: "10px",
+                                backgroundColor: "transparent",
+                                color: "#ef4444",
+                                border: "1px solid #ef4444",
+                                borderRadius: "6px",
+                                cursor: "pointer",
+                                fontWeight: "bold",
+                              }}
+                            >
+                              Sil 🗑️
+                            </button>
+                          )}
                       </div>
+
+                      {activeTab === "COMPLETED" && wpWaybill && (
+                        <a
+                          href={`http://localhost:8080/api/files/${wpWaybill}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            width: "100%",
+                            padding: "10px",
+                            backgroundColor: "#064e3b",
+                            color: "#34d399",
+                            border: "1px solid #10b981",
+                            borderRadius: "6px",
+                            textAlign: "center",
+                            fontWeight: "bold",
+                            textDecoration: "none",
+                            display: "block",
+                            boxSizing: "border-box",
+                          }}
+                        >
+                          📄 İrsaliyeyi Görüntüle
+                        </a>
+                      )}
+
+                      {isReadyForDelivery && activeTab === "ACTIVE" && (
+                        <button
+                          onClick={() => {
+                            setDeliveryModalPackage(wp);
+                            setPackageWaybillFile(null);
+                          }}
+                          style={{
+                            padding: "12px",
+                            backgroundColor: "#8b5cf6",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: "bold",
+                            fontSize: "14px",
+                            boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
+                          }}
+                        >
+                          📦 Tüm Paketi Teslim Et
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
-            </div>
+                  </div>
+                );
+              })}
           </div>
         </>
       )}
@@ -1396,8 +1723,11 @@ export default function WorkPackageList({
                   (p) => p.machine?.id === m.id && p.status === "URETIMDE",
                 );
                 return (
-                  <option key={m.id} value={m.id} disabled={isBusy}>
-                    {m.name} {isBusy ? " 🔴 (Şu an Dolu)" : " 🟢 (Boş)"}
+                  <option key={m.id} value={m.id}>
+                    {m.name}{" "}
+                    {isBusy
+                      ? " 🟠 (Aktif İş Var - Sıraya Alınacak)"
+                      : " 🟢 (Boş - Hemen Başlar)"}
                   </option>
                 );
               })}
@@ -1573,6 +1903,126 @@ export default function WorkPackageList({
                 }}
               >
                 Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PAKET BAZLI TOPLU İRSALİYE MODALI */}
+      {deliveryModalPackage && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1500,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e293b",
+              padding: "25px",
+              borderRadius: "12px",
+              width: "450px",
+              border: "1px solid #475569",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 15px 0", color: "#f8fafc" }}>
+              📦 Toplu Paket Teslimatı
+            </h3>
+
+            <div
+              style={{
+                backgroundColor: "#0f172a",
+                padding: "15px",
+                borderRadius: "8px",
+                color: "#cbd5e1",
+                marginBottom: "20px",
+                border: "1px solid #475569",
+              }}
+            >
+              <p style={{ margin: "0 0 5px 0" }}>
+                <strong>Firma:</strong>{" "}
+                {deliveryModalPackage.customer?.companyName || "Bilinmiyor"}
+              </p>
+              <p style={{ margin: "0 0 5px 0" }}>
+                <strong>Paket No:</strong> {deliveryModalPackage.packageNo}
+              </p>
+              <p style={{ margin: "0", color: "#10b981", fontWeight: "bold" }}>
+                İçindeki tüm parçalar topluca teslim edilecek.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label
+                style={{
+                  display: "block",
+                  color: "#94a3b8",
+                  marginBottom: "8px",
+                  fontSize: "13px",
+                }}
+              >
+                Tüm Paket İçin Sevk İrsaliyesi (PDF, JPG):
+              </label>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={(e) => setPackageWaybillFile(e.target.files[0])}
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  borderRadius: "6px",
+                  border: "1px solid #475569",
+                  backgroundColor: "#0f172a",
+                  color: "#cbd5e1",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            <div
+              style={{ display: "flex", gap: "10px", flexDirection: "column" }}
+            >
+              <button
+                onClick={handlePackageDeliveryApprove}
+                disabled={isUploadingPackageDelivery}
+                style={{
+                  backgroundColor: "#10b981",
+                  color: "#fff",
+                  border: "none",
+                  padding: "15px",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: isUploadingPackageDelivery ? "wait" : "pointer",
+                  fontSize: "16px",
+                  boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
+                }}
+              >
+                {isUploadingPackageDelivery
+                  ? "Belge Yükleniyor..."
+                  : "✅ Paketi Teslim Et ve Kapat"}
+              </button>
+              <button
+                onClick={() => setDeliveryModalPackage(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94a3b8",
+                  width: "100%",
+                  marginTop: "10px",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                }}
+              >
+                İptal Et
               </button>
             </div>
           </div>

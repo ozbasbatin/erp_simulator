@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import Swal from "sweetalert2"; // YENİ: SweetAlert eklendi!
+import Swal from "sweetalert2";
 
 export default function CustomerList({
   workPackages = [],
@@ -75,7 +75,6 @@ export default function CustomerList({
       (wp) => wp.customer && wp.customer.id === id,
     );
 
-    // GÜVENLİK KİLİDİ: Aktif siparişi olan müşteriyi sildirmeme
     if (hasOrders) {
       Swal.fire({
         icon: "error",
@@ -88,7 +87,6 @@ export default function CustomerList({
       return;
     }
 
-    // YENİ: Şık Müşteri Silme Onayı
     const result = await Swal.fire({
       title: "Müşteriyi Sil?",
       text: "Bu müşteriyi sistemden tamamen silmek istediğinize emin misiniz?",
@@ -121,7 +119,6 @@ export default function CustomerList({
   };
 
   const handleHardDeleteOrder = async (orderId) => {
-    // YENİ: Şık Kalıcı Silme Onayı
     const result = await Swal.fire({
       title: "Kalıcı Olarak Sil?",
       text: "🔥 DİKKAT: Bu siparişi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz, Kanban panosundaki parçalar da uçar!",
@@ -408,6 +405,11 @@ export default function CustomerList({
                           p.postProcess === "TESLIM_EDILDI",
                       );
 
+                    // Pakete ait irsaliye yolunu bul
+                    const wpWaybill = wpParts.find(
+                      (p) => p.waybillNumber,
+                    )?.waybillNumber;
+
                     let bgColor = "#0f172a";
                     let borderColor = "#475569";
                     if (isCancelled) {
@@ -471,7 +473,7 @@ export default function CustomerList({
                           {wp.qualityNotes || "Yok"}
                         </div>
 
-                        {/* YENİ: SİPARİŞİN İÇERİĞİ (HANGİ PARÇALAR VARDI?) */}
+                        {/* SİPARİŞİN İÇERİĞİ */}
                         <div
                           style={{
                             backgroundColor: "rgba(0,0,0,0.2)",
@@ -521,7 +523,33 @@ export default function CustomerList({
                           </ul>
                         </div>
 
-                        {/* YENİ: KALICI SİL BUTONU ARTIK TAMAMLANANLAR İÇİN DE AKTİF */}
+                        {/* YENİ: MÜŞTERİ GEÇMİŞİNDE İRSALİYEYİ GÖRÜNTÜLEME BUTONU */}
+                        {wpWaybill && (
+                          <a
+                            href={`http://localhost:8080/api/files/${wpWaybill}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              width: "100%",
+                              padding: "8px",
+                              backgroundColor: "#047857",
+                              color: "#fff",
+                              border: "1px solid #10b981",
+                              borderRadius: "6px",
+                              textAlign: "center",
+                              fontWeight: "bold",
+                              fontSize: "13px",
+                              textDecoration: "none",
+                              display: "block",
+                              boxSizing: "border-box",
+                              marginTop: "10px",
+                            }}
+                          >
+                            📄 İrsaliyeyi Görüntüle
+                          </a>
+                        )}
+
+                        {/* KALICI SİL BUTONU */}
                         {(isCancelled || isCompleted) &&
                           user?.role === "ADMIN" && (
                             <button
@@ -532,7 +560,7 @@ export default function CustomerList({
                                 border: "none",
                                 padding: "8px 12px",
                                 borderRadius: "4px",
-                                marginTop: "12px",
+                                marginTop: "10px",
                                 cursor: "pointer",
                                 fontSize: "12px",
                                 fontWeight: "bold",

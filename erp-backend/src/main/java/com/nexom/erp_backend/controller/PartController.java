@@ -50,6 +50,7 @@ public class PartController {
             existingPart.setQualityRequirements(updatedPart.getQualityRequirements());
             existingPart.setWaybillNumber(updatedPart.getWaybillNumber());
             existingPart.setQualityDocPath(updatedPart.getQualityDocPath());
+            existingPart.setQueueOrder(updatedPart.getQueueOrder());
 
             // İlişkileri koruyarak kaydet
             if (updatedPart.getMachine() != null) {
